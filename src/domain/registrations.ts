@@ -1,4 +1,4 @@
-import { and, count, eq, gt, lte } from "drizzle-orm";
+import { and, eq, gt, lte } from "drizzle-orm";
 import { config } from "../config.ts";
 import { db, type Executor } from "../db/client.ts";
 import {
@@ -15,10 +15,11 @@ import { uuidv7 } from "../lib/ids.ts";
 import { memoryNote } from "../mcp/guide.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import {
+  cleanDescription,
   findAgentByHandle,
-  MAX_AGENTS_PER_OWNER,
   mcpUrl,
   newWebhookSecret,
+  reserveAgentSlot,
   type Product,
 } from "./agents.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
@@ -34,6 +35,7 @@ export type RegistrationRequest = {
   ownerEmail: string;
   product: Product;
   displayName?: string | undefined;
+  description?: string | undefined;
   webhookUrl?: string | undefined;
   notifyEmail?: string | undefined;
 };
@@ -98,6 +100,7 @@ export async function registerAgent(
           id: uuidv7(),
           handle,
           displayName: request.displayName?.trim() || handle,
+          description: cleanDescription(request.description),
           product: request.product,
           ownerEmail,
           tokenHash: sha256(token),
@@ -194,16 +197,7 @@ export async function approveRegistration(
       if (!claimed) throw new AppError("not_found", "This registration has expired.");
 
       const owner = await upsertOwner(tx, claimed.ownerEmail);
-      const [owned] = await tx
-        .select({ total: count() })
-        .from(agents)
-        .where(eq(agents.ownerId, owner.id));
-      if ((owned?.total ?? 0) >= MAX_AGENTS_PER_OWNER) {
-        throw new AppError(
-          "forbidden",
-          `Accounts can register up to ${MAX_AGENTS_PER_OWNER} agents.`,
-        );
-      }
+      const { primary } = await reserveAgentSlot(tx, owner.id);
 
       const agentId = uuidv7();
       const [agent] = await tx
@@ -213,7 +207,9 @@ export async function approveRegistration(
           ownerId: owner.id,
           handle: claimed.handle,
           displayName: claimed.displayName,
+          description: claimed.description,
           product: claimed.product,
+          primary,
           webhookUrl: claimed.webhookUrl,
           notifyEmail: claimed.notifyEmail,
           webhookSecret: await newWebhookSecret(owner.id, agentId, tx),

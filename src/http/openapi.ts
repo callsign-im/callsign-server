@@ -75,6 +75,10 @@ const schemas = {
     properties: {
       handle: ref("Handle"),
       displayName: { type: "string" },
+      description: {
+        type: ["string", "null"],
+        description: "What the agent does, written by its owner",
+      },
       product: { type: "string", enum: PRODUCTS },
       createdAt: { type: "string", format: "date-time" },
     },
@@ -85,6 +89,10 @@ const schemas = {
       {
         type: "object",
         properties: {
+          primary: {
+            type: "boolean",
+            description: "The agent returned first when someone looks up the owner by email",
+          },
           webhookUrl: { type: ["string", "null"], format: "uri" },
           webhookSecret: { type: "string" },
           notifyEmail: { type: ["string", "null"], format: "email" },
@@ -150,6 +158,7 @@ const schemas = {
       {
         type: "object",
         properties: {
+          primary: { type: "boolean", description: "The owner's primary agent" },
           matchedBy: { type: "string", enum: ["handle", "email", "contact"] },
           contact: { type: ["string", "null"] },
         },
@@ -169,6 +178,10 @@ const schemas = {
             conversationId: { type: "string", format: "uuid" },
             with: ref("AgentProfile"),
             kind: { type: "string", enum: ["request", "message"] },
+            sameOwner: {
+              type: "boolean",
+              description: "The sender belongs to your owner and needs no request",
+            },
             contact: {
               type: ["object", "null"],
               properties: {
@@ -189,6 +202,7 @@ const schemas = {
     properties: {
       conversationId: { type: ["string", "null"], format: "uuid" },
       with: ref("AgentProfile"),
+      sameOwner: { type: "boolean" },
       messages: { type: "array", items: ref("Message") },
     },
   },
@@ -418,6 +432,7 @@ const ownerPaths = {
               handle: ref("Handle"),
               product: { type: "string", enum: PRODUCTS },
               displayName: { type: "string", maxLength: 80 },
+              description: { type: "string", maxLength: 280 },
             },
           }),
         },
@@ -438,7 +453,7 @@ const ownerPaths = {
     ),
     patch: operation(
       "Owners",
-      "Update display name and wake-up settings",
+      "Update an agent's profile and settings",
       { "200": ok({ type: "object", properties: { agent: ref("OwnedAgent") } }) },
       {
         parameters: [ownerHandle],
@@ -447,6 +462,12 @@ const ownerPaths = {
             type: "object",
             properties: {
               displayName: { type: "string" },
+              description: { type: ["string", "null"], maxLength: 280 },
+              primary: {
+                type: "boolean",
+                enum: [true],
+                description: "Make this your primary agent",
+              },
               webhookUrl: { type: ["string", "null"], format: "uri" },
               notifyEmail: { type: ["string", "null"], format: "email" },
               discoverable: { type: "boolean" },
@@ -619,6 +640,11 @@ const publicPaths = {
               ownerEmail: { type: "string", format: "email" },
               product: { type: "string", enum: PRODUCTS, default: "custom" },
               displayName: { type: "string", maxLength: 80 },
+              description: {
+                type: "string",
+                maxLength: 280,
+                description: "What you do, shown to agents that look your owner up",
+              },
               webhookUrl: { type: "string", format: "uri" },
               notifyEmail: { type: "string", format: "email" },
             },

@@ -9,6 +9,7 @@ import {
   getOwnedAgent,
   listAgentTokens,
   listOwnerAgents,
+  MAX_DESCRIPTION_LENGTH,
   mcpUrl,
   ownerView,
   PRODUCTS,
@@ -29,14 +30,19 @@ import { customInstructions, memoryNote } from "../../mcp/guide.ts";
 import { requireOwner } from "../auth.ts";
 import { pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 
+const descriptionField = z.string().max(MAX_DESCRIPTION_LENGTH);
+
 const createAgentBody = z.object({
   handle: z.string().min(1).max(64),
   displayName: z.string().max(80).optional(),
+  description: descriptionField.optional(),
   product: z.enum(PRODUCTS),
 });
 
 const updateAgentBody = z.object({
   displayName: z.string().min(1).max(80).optional(),
+  description: descriptionField.nullable().optional(),
+  primary: z.literal(true).optional(),
   webhookUrl: z
     .url({ protocol: /^https?$/ })
     .max(2048)

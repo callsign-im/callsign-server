@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
 import { config } from "../config.ts";
-import { db, type Executor } from "../db/client.ts";
+import { db, type Executor, type Tx } from "../db/client.ts";
 import {
   agentRegistrations,
   agentTokens,
@@ -23,11 +23,13 @@ import {
 } from "./handles.ts";
 import { ownerKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
+import { lockOwner } from "./owners.ts";
 
 export const PRODUCTS = ["dots", "claude-duet", "grok-bot", "muse", "custom"] as const;
 export type Product = (typeof PRODUCTS)[number];
 
 export const MAX_AGENTS_PER_OWNER = 25;
+export const MAX_DESCRIPTION_LENGTH = 280;
 const TOUCH_INTERVAL_MS = 60_000;
 
 const rulesContext = (agentId: string) => `agents.rules:${agentId}`;
@@ -77,26 +79,41 @@ export async function getOwnedAgent(ownerId: string, rawHandle: string): Promise
   return agent;
 }
 
+export function cleanDescription(description: string | null | undefined): string | null {
+  return description?.replace(/\s+/g, " ").trim() || null;
+}
+
+export async function reserveAgentSlot(tx: Tx, ownerId: string): Promise<{ primary: boolean }> {
+  await lockOwner(tx, ownerId);
+  const [owned] = await tx
+    .select({ total: count() })
+    .from(agents)
+    .where(eq(agents.ownerId, ownerId));
+  const total = owned?.total ?? 0;
+  if (total >= MAX_AGENTS_PER_OWNER) {
+    throw new AppError("forbidden", `Accounts can register up to ${MAX_AGENTS_PER_OWNER} agents.`);
+  }
+  return { primary: total === 0 };
+}
+
 export async function createAgent(
   owner: Owner,
-  input: { handle: string; displayName?: string | undefined; product: Product },
+  input: {
+    handle: string;
+    displayName?: string | undefined;
+    description?: string | null | undefined;
+    product: Product;
+  },
 ): Promise<Agent> {
   const handle = normalizeHandle(input.handle);
   assertClaimableHandle(handle);
   await rateLimit(`create-agent:${owner.id}`, 10, 3600);
 
-  const [owned] = await db
-    .select({ total: count() })
-    .from(agents)
-    .where(eq(agents.ownerId, owner.id));
-  if ((owned?.total ?? 0) >= MAX_AGENTS_PER_OWNER) {
-    throw new AppError("forbidden", `Accounts can register up to ${MAX_AGENTS_PER_OWNER} agents.`);
-  }
-
   const id = uuidv7();
   const webhookSecret = await newWebhookSecret(owner.id, id);
   try {
     const { agent, recorded } = await db.transaction(async (tx) => {
+      const { primary } = await reserveAgentSlot(tx, owner.id);
       if (await isAwaitingApproval(handle, tx)) {
         throw new AppError(
           "conflict",
@@ -110,7 +127,9 @@ export async function createAgent(
           ownerId: owner.id,
           handle,
           displayName: input.displayName?.trim() || handle,
+          description: cleanDescription(input.description),
           product: input.product,
+          primary,
           webhookSecret,
         })
         .returning();
@@ -151,6 +170,8 @@ export async function webhookSecret(agent: Agent): Promise<string> {
 
 export type AgentSettings = {
   displayName?: string | undefined;
+  description?: string | null | undefined;
+  primary?: true | undefined;
   webhookUrl?: string | null | undefined;
   notifyEmail?: string | null | undefined;
   discoverable?: boolean | undefined;
@@ -161,6 +182,10 @@ export async function updateAgent(agent: Agent, settings: AgentSettings): Promis
   const key = await ownerKey(agent.ownerId);
   const patch = {
     ...(settings.displayName !== undefined && { displayName: settings.displayName.trim() }),
+    ...(settings.description !== undefined && {
+      description: cleanDescription(settings.description),
+    }),
+    ...(settings.primary && !agent.primary && { primary: true }),
     ...(settings.webhookUrl !== undefined && { webhookUrl: settings.webhookUrl }),
     ...(settings.notifyEmail !== undefined && { notifyEmail: settings.notifyEmail }),
     ...(settings.discoverable !== undefined && { discoverable: settings.discoverable }),
@@ -172,6 +197,13 @@ export async function updateAgent(agent: Agent, settings: AgentSettings): Promis
   if (fields.length === 0) return agent;
 
   const { updated, recorded } = await db.transaction(async (tx) => {
+    if (patch.primary) {
+      await lockOwner(tx, agent.ownerId);
+      await tx
+        .update(agents)
+        .set({ primary: false })
+        .where(and(eq(agents.ownerId, agent.ownerId), eq(agents.primary, true)));
+    }
     const [updated] = await tx.update(agents).set(patch).where(eq(agents.id, agent.id)).returning();
     if (!updated) throw new AppError("not_found", "Agent not found.");
     const recorded = await appendLedgerEvent(tx, agent, {
@@ -278,6 +310,7 @@ export function publicProfile(agent: Agent) {
   return {
     handle: formatHandle(agent.handle),
     displayName: agent.displayName,
+    description: agent.description,
     product: agent.product,
     createdAt: agent.createdAt.toISOString(),
   };
@@ -287,6 +320,7 @@ export async function ownerView(agent: Agent) {
   const key = await ownerKey(agent.ownerId);
   return {
     ...publicProfile(agent),
+    primary: agent.primary,
     webhookUrl: agent.webhookUrl,
     webhookSecret: key.open(agent.webhookSecret, secretContext(agent.id)),
     notifyEmail: agent.notifyEmail,

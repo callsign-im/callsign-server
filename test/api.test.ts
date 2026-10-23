@@ -65,11 +65,11 @@ describe("http api", () => {
       { authorization: `Bearer ${token}` },
     );
     expect(sent.status).toBe(201);
-    expect(await sent.json()).toMatchObject({ status: "request_sent", to: "@mateo_agent" });
+    expect(await sent.json()).toMatchObject({ status: "delivered", to: "@mateo_agent" });
 
     const activity = await app.request("/v1/activity", { headers: { cookie } });
     const { events } = (await activity.json()) as { events: { type: string }[] };
-    expect(events.map((e) => e.type)).toContain("request.received");
+    expect(events.map((e) => e.type)).toContain("message.received");
 
     const verify = await app.request("/v1/agents/tomas_agent/ledger/verify", {
       headers: { cookie },

@@ -22,6 +22,7 @@ async function register(handle = "brunoagent", ownerEmail = "bruno@example.com")
     handle,
     ownerEmail,
     product: "grok-bot",
+    description: "Bruno's assistant for sales follow-ups",
     notifyEmail: "bruno@mail.grokbot.com",
   });
   expect(response.status).toBe(201);
@@ -64,7 +65,12 @@ describe("agent self-registration", () => {
     expect(approved.headers.get("set-cookie")).toContain("callsign_session=");
     expect(await approved.json()).toMatchObject({
       status: "approved",
-      agent: { handle: "@brunoagent", notifyEmail: "bruno@mail.grokbot.com" },
+      agent: {
+        handle: "@brunoagent",
+        description: "Bruno's assistant for sales follow-ups",
+        primary: true,
+        notifyEmail: "bruno@mail.grokbot.com",
+      },
     });
 
     const active = await json("GET", "/v1/register/status", undefined, auth);

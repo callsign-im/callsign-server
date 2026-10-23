@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { mcpUrl, ownerView, PRODUCTS, publicProfile } from "../../domain/agents.ts";
+import {
+  MAX_DESCRIPTION_LENGTH,
+  mcpUrl,
+  ownerView,
+  PRODUCTS,
+  publicProfile,
+} from "../../domain/agents.ts";
 import { AppError } from "../../domain/errors.ts";
 import {
   approveRegistration,
@@ -23,6 +29,7 @@ const registerBody = z.object({
   ownerEmail: z.string().max(254),
   product: z.enum(PRODUCTS).default("custom"),
   displayName: z.string().max(80).optional(),
+  description: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
   webhookUrl: z
     .url({ protocol: /^https?$/ })
     .max(2048)

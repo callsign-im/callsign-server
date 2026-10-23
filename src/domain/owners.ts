@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "../config.ts";
-import { db, type Executor } from "../db/client.ts";
+import { db, type Executor, type Tx } from "../db/client.ts";
 import { loginTokens, owners, sessions, type Owner } from "../db/schema.ts";
 import { enqueue } from "../jobs/queue.ts";
 import { randomToken, sha256 } from "../lib/crypto.ts";
@@ -83,6 +83,15 @@ export async function upsertOwner(executor: Executor, email: string): Promise<Ow
   const owner = await findOwnerByEmail(executor, email);
   if (!owner) throw new Error("owner upsert returned no row");
   return owner;
+}
+
+export async function lockOwner(tx: Tx, ownerId: string): Promise<void> {
+  const [owner] = await tx
+    .select({ id: owners.id })
+    .from(owners)
+    .where(eq(owners.id, ownerId))
+    .for("update");
+  if (!owner) throw new AppError("not_found", "Account not found.");
 }
 
 export async function createSession(

@@ -54,6 +54,7 @@ export type InboxThread = {
   conversationId: string;
   with: ReturnType<typeof publicProfile>;
   kind: "request" | "message";
+  sameOwner: boolean;
   contact: ContactContext;
   messages: MessageView[];
 };
@@ -69,6 +70,10 @@ const bodyContext = (messageId: string) => `messages.body:${messageId}`;
 
 function contactContext(contact: ContactRecord | undefined): ContactContext {
   return contact ? { name: contact.name, notes: contact.notes, rules: contact.rules } : null;
+}
+
+function sameOwner(a: Agent, b: Agent): boolean {
+  return a.ownerId === b.ownerId;
 }
 
 function directKey(a: string, b: string): string {
@@ -185,7 +190,9 @@ export async function sendMessage(
 
   await rateLimit(`send:${sender.id}`, 60, 60);
   const existing = await findDirectConversation(sender, recipient);
-  if (!existing) await rateLimit(`new-contact:${sender.id}`, 20, 3600);
+  if (!existing && !sameOwner(sender, recipient)) {
+    await rateLimit(`new-contact:${sender.id}`, 20, 3600);
+  }
   const draft = existing ? null : await draftConversation();
 
   try {
@@ -215,12 +222,14 @@ async function deliver(
   },
 ): Promise<{ result: SendResult; recorded: RecordedEvent[] }> {
   const { sender, recipient, body, draft, idempotencyKey } = input;
+  const siblings = sameOwner(sender, recipient);
   const isNew = draft
     ? await openDirectConversation(tx, draft, sender, recipient, {
         initiator: "active",
-        peer: "pending",
+        peer: siblings ? "active" : "pending",
       })
     : false;
+  const isRequest = isNew && !siblings;
   const locked = await lockDirectConversation(tx, sender, recipient);
   if (!locked) throw new Error("direct conversation vanished after insert");
   const { conversation, mine, theirs } = locked;
@@ -278,13 +287,13 @@ async function deliver(
   const proof = { messageId, seq, contentHash: key.digest(body) };
   recorded.push(
     await appendLedgerEvent(tx, sender, {
-      type: isNew ? "request.sent" : "message.sent",
+      type: isRequest ? "request.sent" : "message.sent",
       actor: "agent",
       conversationId: conversation.id,
       data: { to, ...proof },
     }),
     await appendLedgerEvent(tx, recipient, {
-      type: isNew ? "request.received" : "message.received",
+      type: isRequest ? "request.received" : "message.received",
       actor: "peer",
       conversationId: conversation.id,
       data: { from: formatHandle(sender.handle), ...proof },
@@ -295,12 +304,12 @@ async function deliver(
     agentId: recipient.id,
     conversationId: conversation.id,
     seq,
-    kind: isNew ? "request" : "message",
+    kind: isRequest ? "request" : "message",
   } as const;
   if (recipient.webhookUrl) await enqueue(tx, "agent.webhook", job);
   if (recipient.notifyEmail) await enqueue(tx, "agent.email", job);
 
-  const status: SendStatus = isNew
+  const status: SendStatus = isRequest
     ? "request_sent"
     : theirs === "pending"
       ? "awaiting_acceptance"
@@ -445,6 +454,7 @@ export async function checkInbox(agent: Agent): Promise<Inbox> {
       conversationId: conversation.id,
       with: publicProfile(peer),
       kind: member.status === "pending" ? "request" : "message",
+      sameOwner: sameOwner(agent, peer),
       contact: null,
       messages: unread.map((m) => messageView(m, handles, key)),
     });
@@ -473,6 +483,7 @@ export async function getConversation(
     return {
       conversationId: null,
       with: publicProfile(peer),
+      sameOwner: sameOwner(me, peer),
       contact,
       rules,
       status: null,
@@ -513,6 +524,7 @@ export async function getConversation(
   return {
     conversationId: conversation.id,
     with: publicProfile(peer),
+    sameOwner: sameOwner(me, peer),
     contact,
     rules,
     status: {

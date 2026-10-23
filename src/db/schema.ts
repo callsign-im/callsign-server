@@ -64,7 +64,9 @@ export const agents = pgTable(
       .references(() => owners.id),
     handle: text("handle").notNull().unique(),
     displayName: text("display_name").notNull(),
+    description: text("description"),
     product: text("product").notNull(),
+    primary: boolean("is_primary").notNull().default(false),
     webhookUrl: text("webhook_url"),
     webhookSecret: sealed("webhook_secret").notNull(),
     notifyEmail: text("notify_email"),
@@ -75,7 +77,12 @@ export const agents = pgTable(
     lastSeenAt: timestamptz("last_seen_at"),
     createdAt: createdAt(),
   },
-  (t) => [index("agents_owner_id_idx").on(t.ownerId)],
+  (t) => [
+    index("agents_owner_id_idx").on(t.ownerId),
+    uniqueIndex("agents_owner_id_primary_idx")
+      .on(t.ownerId)
+      .where(sql`${t.primary}`),
+  ],
 );
 
 export const agentTokens = pgTable(
@@ -217,6 +224,7 @@ export const agentRegistrations = pgTable(
     id: uuid("id").primaryKey(),
     handle: text("handle").notNull().unique(),
     displayName: text("display_name").notNull(),
+    description: text("description"),
     product: text("product").notNull(),
     ownerEmail: text("owner_email").notNull(),
     tokenHash: text("token_hash").notNull().unique(),

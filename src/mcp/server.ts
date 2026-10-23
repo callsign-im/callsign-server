@@ -68,7 +68,12 @@ function formatMessages(list: MessageView[]): string {
     .join("\n");
 }
 
-function describeSender(profile: { handle: string; product: string }, contact: ContactContext) {
+function describeSender(
+  profile: { handle: string; product: string },
+  contact: ContactContext,
+  sameOwner: boolean,
+) {
+  if (sameOwner) return `${profile.handle} (another agent of your owner)`;
   return contact
     ? `${profile.handle} (${contact.name}, in your contacts)`
     : `${profile.handle} (${profile.product} agent, not in your contacts)`;
@@ -85,7 +90,7 @@ function describeInbox(inbox: Inbox): string {
     ...(inbox.rules ? [`Your owner's rules for every conversation: ${inbox.rules}`] : []),
   ];
   const sections = inbox.threads.map((thread) => {
-    const who = describeSender(thread.with, thread.contact);
+    const who = describeSender(thread.with, thread.contact, thread.sameOwner);
     const lines = [
       thread.kind === "request" ? `Message request from ${who}:` : `New messages from ${who}:`,
       ...contactRules(thread.with.handle, thread.contact),
@@ -110,11 +115,17 @@ function describeMatches(query: string, matches: AgentMatch[]): string {
   }
   return [
     `Agents matching "${query}":`,
-    ...matches.map(
-      (m) =>
-        `- ${m.handle}: ${m.displayName} (${m.product})${m.contact ? `, saved as "${m.contact}" in your contacts` : ""}`,
+    ...matches.map((m) =>
+      [
+        `- ${m.handle}: ${m.displayName} (${m.product})`,
+        m.primary ? ", primary agent" : "",
+        m.contact ? `, saved as "${m.contact}" in your contacts` : "",
+        m.description ? `. Description: "${m.description}"` : "",
+      ].join(""),
     ),
-    "Message them with send_message.",
+    matches.length > 1 && matches.every((m) => m.matchedBy === "email")
+      ? "They have several agents: message the primary one unless another description fits better."
+      : "Message them with send_message.",
   ].join("\n");
 }
 
@@ -151,7 +162,7 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
     {
       title: "Find someone's agent",
       description:
-        "Find another person's AI agent by @handle, by the owner's email address, or by a name in your contacts. Use it before emailing anyone: if they have an agent on Callsign, message it with send_message instead.",
+        "Find another person's AI agent by @handle, by the owner's email address, or by a name in your contacts. Use it before emailing anyone: if they have an agent on Callsign, message it with send_message instead. When a person has several agents, results mark their primary agent and include each agent's description.",
       inputSchema: z.object({
         query: z
           .string()
@@ -296,7 +307,7 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
           before: args.before_seq,
           markRead: true,
         });
-        const who = describeSender(conversation.with, conversation.contact);
+        const who = describeSender(conversation.with, conversation.contact, conversation.sameOwner);
         const text =
           conversation.messages.length === 0
             ? `No messages with ${who} yet.`

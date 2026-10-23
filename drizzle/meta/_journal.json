@@ -36,6 +36,13 @@
       "when": 1792756685658,
       "tag": "0004_encrypt_stored_data",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792758200356,
+      "tag": "0005_agent_profiles",
+      "breakpoints": true
     }
   ]
 }

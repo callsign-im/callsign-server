@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { agents, contacts, owners, type Agent, type Contact } from "../db/schema.ts";
 import type { DataKey } from "../lib/encryption.ts";
@@ -166,6 +166,7 @@ export async function deleteContact(ownerId: string, id: string): Promise<void> 
 }
 
 export type AgentMatch = ReturnType<typeof publicProfile> & {
+  primary: boolean;
   matchedBy: "handle" | "email" | "contact";
   contact: string | null;
 };
@@ -183,6 +184,7 @@ export async function findAgents(me: Agent, rawQuery: string): Promise<AgentMatc
       .from(agents)
       .innerJoin(owners, eq(owners.id, agents.ownerId))
       .where(and(eq(owners.email, query.toLowerCase()), eq(agents.discoverable, true)))
+      .orderBy(desc(agents.primary), asc(agents.createdAt))
       .limit(MAX_MATCHES);
     for (const { agent } of rows) found.set(agent.id, { agent, matchedBy: "email" });
   } else {
@@ -203,6 +205,7 @@ export async function findAgents(me: Agent, rawQuery: string): Promise<AgentMatc
   const names = new Map(saved.map(({ contact }) => [contact.agentId, contact.name]));
   return [...found.values()].slice(0, MAX_MATCHES).map(({ agent, matchedBy }) => ({
     ...publicProfile(agent),
+    primary: agent.primary,
     matchedBy,
     contact: names.get(agent.id) ?? null,
   }));
