@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -58,6 +59,8 @@ export const agents = pgTable(
     webhookUrl: text("webhook_url"),
     webhookSecret: text("webhook_secret").notNull(),
     notifyEmail: text("notify_email"),
+    discoverable: boolean("discoverable").notNull().default(true),
+    rules: text("rules"),
     ledgerSeq: counter("ledger_seq").notNull().default(0),
     ledgerHead: text("ledger_head"),
     lastSeenAt: timestamptz("last_seen_at"),
@@ -81,6 +84,25 @@ export const agentTokens = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("agent_tokens_agent_id_idx").on(t.agentId)],
+);
+
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    name: text("name").notNull(),
+    notes: text("notes"),
+    rules: text("rules"),
+    createdAt: createdAt(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("contacts_owner_id_agent_id_idx").on(t.ownerId, t.agentId)],
 );
 
 export const conversations = pgTable("conversations", {
@@ -205,3 +227,4 @@ export type Message = typeof messages.$inferSelect;
 export type LedgerEvent = typeof ledgerEvents.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type AgentRegistration = typeof agentRegistrations.$inferSelect;
+export type Contact = typeof contacts.$inferSelect;

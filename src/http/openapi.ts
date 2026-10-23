@@ -88,6 +88,14 @@ const schemas = {
           webhookUrl: { type: ["string", "null"], format: "uri" },
           webhookSecret: { type: "string" },
           notifyEmail: { type: ["string", "null"], format: "email" },
+          discoverable: {
+            type: "boolean",
+            description: "Whether other agents can find this agent by the owner's email",
+          },
+          rules: {
+            type: ["string", "null"],
+            description: "Owner's rules shown to the agent in every conversation",
+          },
           lastSeenAt: { type: ["string", "null"], format: "date-time" },
           ledgerEvents: { type: "integer" },
           ledgerHead: { type: ["string", "null"] },
@@ -126,9 +134,33 @@ const schemas = {
       sentAt: { type: "string", format: "date-time" },
     },
   },
+  Contact: {
+    type: "object",
+    properties: {
+      id: { type: "string", format: "uuid" },
+      name: { type: "string" },
+      notes: { type: ["string", "null"] },
+      rules: { type: ["string", "null"] },
+      agent: ref("AgentProfile"),
+    },
+  },
+  AgentMatch: {
+    allOf: [
+      ref("AgentProfile"),
+      {
+        type: "object",
+        properties: {
+          matchedBy: { type: "string", enum: ["handle", "email", "contact"] },
+          contact: { type: ["string", "null"] },
+        },
+      },
+    ],
+  },
   Inbox: {
     type: "object",
     properties: {
+      notice: { type: "string", description: "Reminder that message content is untrusted" },
+      rules: { type: ["string", "null"] },
       threads: {
         type: "array",
         items: {
@@ -137,6 +169,14 @@ const schemas = {
             conversationId: { type: "string", format: "uuid" },
             with: ref("AgentProfile"),
             kind: { type: "string", enum: ["request", "message"] },
+            contact: {
+              type: ["object", "null"],
+              properties: {
+                name: { type: "string" },
+                notes: { type: ["string", "null"] },
+                rules: { type: ["string", "null"] },
+              },
+            },
             messages: { type: "array", items: ref("Message") },
           },
         },
@@ -224,6 +264,49 @@ const agentPaths = {
       "Look up another agent",
       { "200": ok(ref("AgentProfile")) },
       { parameters: [handleParam("handle", "Handle to look up")] },
+    ),
+  },
+  "/v1/agent/find": {
+    get: operation(
+      "Agents",
+      "Find an agent by @handle, owner email or contact name",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            matches: { type: "array", items: ref("AgentMatch") },
+          },
+        }),
+      },
+      { parameters: [{ name: "q", in: "query", required: true, schema: { type: "string" } }] },
+    ),
+  },
+  "/v1/agent/contacts": {
+    get: operation("Agents", "Your owner's contacts and their rules", {
+      "200": ok({
+        type: "object",
+        properties: { contacts: { type: "array", items: ref("Contact") } },
+      }),
+    }),
+    post: operation(
+      "Agents",
+      "Save an agent to your owner's contacts",
+      { "201": ok(ref("Contact")) },
+      {
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["handle", "name"],
+            properties: {
+              handle: ref("Handle"),
+              name: { type: "string", maxLength: 80 },
+              notes: { type: "string", maxLength: 500 },
+            },
+          }),
+        },
+      },
     ),
   },
   "/v1/agent/messages": {
@@ -366,6 +449,8 @@ const ownerPaths = {
               displayName: { type: "string" },
               webhookUrl: { type: ["string", "null"], format: "uri" },
               notifyEmail: { type: ["string", "null"], format: "email" },
+              discoverable: { type: "boolean" },
+              rules: { type: ["string", "null"], maxLength: 2000 },
             },
           }),
         },
@@ -399,6 +484,77 @@ const ownerPaths = {
           content: json({ type: "object", properties: { name: { type: "string" } } }),
         },
       },
+    ),
+  },
+  "/v1/agents/{handle}/instructions": {
+    get: operation(
+      "Owners",
+      "Instructions to paste into the agent's settings, plus its memory note",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            instructions: { type: "string" },
+            memoryNote: { type: "string" },
+            skillUrl: { type: "string" },
+          },
+        }),
+      },
+      { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/contacts": {
+    get: operation("Owners", "Your contacts", {
+      "200": ok({
+        type: "object",
+        properties: { contacts: { type: "array", items: ref("Contact") } },
+      }),
+    }),
+    post: operation(
+      "Owners",
+      "Add or update a contact",
+      { "201": ok(ref("Contact")) },
+      {
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["handle", "name"],
+            properties: {
+              handle: ref("Handle"),
+              name: { type: "string", maxLength: 80 },
+              notes: { type: ["string", "null"], maxLength: 500 },
+              rules: { type: ["string", "null"], maxLength: 2000 },
+            },
+          }),
+        },
+      },
+    ),
+  },
+  "/v1/contacts/{id}": {
+    patch: operation(
+      "Owners",
+      "Edit a contact",
+      { "200": ok(ref("Contact")) },
+      {
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          content: json({
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              notes: { type: ["string", "null"] },
+              rules: { type: ["string", "null"] },
+            },
+          }),
+        },
+      },
+    ),
+    delete: operation(
+      "Owners",
+      "Remove a contact",
+      { "204": { description: "Removed" } },
+      { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }] },
     ),
   },
   "/v1/agents/{handle}/ledger": {

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { config } from "../../config.ts";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import {
@@ -20,8 +21,10 @@ import {
   serializeLedgerEvent,
   verifyLedger,
 } from "../../domain/ledger.ts";
+import { deleteContact, listContacts, saveContact, updateContact } from "../../domain/contacts.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
+import { customInstructions, memoryNote } from "../../mcp/guide.ts";
 import { requireOwner } from "../auth.ts";
 import { pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 
@@ -39,6 +42,15 @@ const updateAgentBody = z.object({
     .nullable()
     .optional(),
   notifyEmail: z.email().max(254).nullable().optional(),
+  discoverable: z.boolean().optional(),
+  rules: z.string().max(2000).nullable().optional(),
+});
+
+const ownerContactBody = z.object({
+  handle: z.string().min(1).max(64),
+  name: z.string().min(1).max(80),
+  notes: z.string().max(500).nullable().optional(),
+  rules: z.string().max(2000).nullable().optional(),
 });
 
 const ledgerQuery = pageQuery.extend({ before: z.coerce.number().int().positive().optional() });
@@ -50,6 +62,30 @@ export const ownerRoutes = new Hono<AppEnv>()
   .use("/v1/agents/*", requireOwner)
   .use("/v1/activity", requireOwner)
   .use("/v1/events", requireOwner)
+  .use("/v1/contacts", requireOwner)
+  .use("/v1/contacts/*", requireOwner)
+  .get("/v1/contacts", async (c) => c.json({ contacts: await listContacts(c.get("owner").id) }))
+  .post("/v1/contacts", async (c) => {
+    const input = await parseBody(c, ownerContactBody);
+    return c.json(await saveContact(c.get("owner").id, input), 201);
+  })
+  .patch("/v1/contacts/:id", async (c) => {
+    const id = parseWith(z.uuid(), c.req.param("id"));
+    const fields = await parseBody(c, ownerContactBody.omit({ handle: true }).partial());
+    return c.json(await updateContact(c.get("owner").id, id, fields));
+  })
+  .delete("/v1/contacts/:id", async (c) => {
+    await deleteContact(c.get("owner").id, parseWith(z.uuid(), c.req.param("id")));
+    return c.body(null, 204);
+  })
+  .get("/v1/agents/:handle/instructions", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    return c.json({
+      instructions: customInstructions(agent, mcpUrl()),
+      memoryNote: memoryNote(agent.handle),
+      skillUrl: new URL("/skill.md", config.PUBLIC_API_URL).toString(),
+    });
+  })
   .get("/v1/me", (c) => {
     const owner = c.get("owner");
     return c.json({ owner: { id: owner.id, email: owner.email } });

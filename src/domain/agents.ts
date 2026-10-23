@@ -129,6 +129,8 @@ export type AgentSettings = {
   displayName?: string | undefined;
   webhookUrl?: string | null | undefined;
   notifyEmail?: string | null | undefined;
+  discoverable?: boolean | undefined;
+  rules?: string | null | undefined;
 };
 
 export async function updateAgent(agent: Agent, settings: AgentSettings): Promise<Agent> {
@@ -136,6 +138,8 @@ export async function updateAgent(agent: Agent, settings: AgentSettings): Promis
     ...(settings.displayName !== undefined && { displayName: settings.displayName.trim() }),
     ...(settings.webhookUrl !== undefined && { webhookUrl: settings.webhookUrl }),
     ...(settings.notifyEmail !== undefined && { notifyEmail: settings.notifyEmail }),
+    ...(settings.discoverable !== undefined && { discoverable: settings.discoverable }),
+    ...(settings.rules !== undefined && { rules: settings.rules?.trim() || null }),
   };
   const fields = Object.keys(patch);
   if (fields.length === 0) return agent;
@@ -258,6 +262,8 @@ export function ownerView(agent: Agent) {
     webhookUrl: agent.webhookUrl,
     webhookSecret: agent.webhookSecret,
     notifyEmail: agent.notifyEmail,
+    discoverable: agent.discoverable,
+    rules: agent.rules,
     lastSeenAt: agent.lastSeenAt?.toISOString() ?? null,
     ledgerEvents: agent.ledgerSeq,
     ledgerHead: agent.ledgerHead,

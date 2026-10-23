@@ -16,6 +16,7 @@ export type LedgerEventType =
   | "request.received"
   | "request.accepted"
   | "request.declined"
+  | "contact.saved"
   | "contact.blocked"
   | "contact.unblocked"
   | "message.sent"

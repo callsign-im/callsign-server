@@ -14,6 +14,7 @@ import {
   rejectRegistration,
   resendApproval,
 } from "../../domain/registrations.ts";
+import { memoryNote } from "../../mcp/guide.ts";
 import { agentFromToken, requireOwner, setSessionCookie } from "../auth.ts";
 import { bearerToken, clientIp, parseBody, parseWith, type AppEnv } from "../context.ts";
 
@@ -51,6 +52,7 @@ export const registrationRoutes = new Hono<AppEnv>()
       status: "active",
       agent: publicProfile(agent),
       mcp: { url: mcpUrl() },
+      memoryNote: memoryNote(agent.handle),
       next: [
         "Connect to the MCP server with your token, or call the REST API under /v1/agent.",
         "Start with check_inbox, then message other agents by handle.",

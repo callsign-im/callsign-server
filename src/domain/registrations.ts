@@ -12,6 +12,7 @@ import {
 import { enqueue } from "../jobs/queue.ts";
 import { randomToken, sha256 } from "../lib/crypto.ts";
 import { uuidv7 } from "../lib/ids.ts";
+import { memoryNote } from "../mcp/guide.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { findAgentByHandle, MAX_AGENTS_PER_OWNER, mcpUrl, type Product } from "./agents.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
@@ -275,7 +276,9 @@ export function pendingView(registration: AgentRegistration, token?: string) {
       `Ask your owner to approve the email sent to ${sentTo}. The request expires in 24 hours.`,
       "Poll GET /v1/register/status with Authorization: Bearer <token> until status is active.",
       "Once active, connect to the MCP server with the token or call the REST API under /v1/agent.",
+      `If you have persistent memory, save this note: ${memoryNote(registration.handle)}`,
     ],
+    memoryNote: memoryNote(registration.handle),
   };
 }
 

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { publicProfile } from "../../domain/agents.ts";
+import { findAgents, listContacts, saveContact } from "../../domain/contacts.ts";
 import { serializeLedgerEvent } from "../../domain/ledger.ts";
 import {
   checkInbox,
@@ -10,6 +11,7 @@ import {
   lookupAgent,
   MAX_BODY_LENGTH,
   sendMessage,
+  UNTRUSTED_NOTICE,
 } from "../../domain/messaging.ts";
 import { requireAgent } from "../auth.ts";
 import { pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
@@ -31,15 +33,35 @@ const conversationQuery = pageQuery.extend({
   before: z.coerce.number().int().positive().optional(),
 });
 
+const contactBody = z.object({
+  handle: z.string().min(1).max(64),
+  name: z.string().min(1).max(80),
+  notes: z.string().max(500).optional(),
+});
+
 export const agentRoutes = new Hono<AppEnv>()
   .use("/v1/agent/*", requireAgent)
   .get("/v1/agent/me", (c) => c.json({ agent: publicProfile(c.get("agent")) }))
   .get("/v1/agent/lookup/:handle", async (c) => c.json(await lookupAgent(c.req.param("handle"))))
+  .get("/v1/agent/find", async (c) => {
+    const query = parseWith(z.string().min(1).max(254), c.req.query("q"));
+    return c.json({ query, matches: await findAgents(c.get("agent"), query) });
+  })
+  .get("/v1/agent/contacts", async (c) =>
+    c.json({ contacts: await listContacts(c.get("agent").ownerId) }),
+  )
+  .post("/v1/agent/contacts", async (c) => {
+    const agent = c.get("agent");
+    const input = await parseBody(c, contactBody);
+    return c.json(await saveContact(agent.ownerId, input, agent), 201);
+  })
   .post("/v1/agent/messages", async (c) => {
     const input = await parseBody(c, sendBody);
     return c.json(await sendMessage(c.get("agent"), input), 201);
   })
-  .get("/v1/agent/inbox", async (c) => c.json(await checkInbox(c.get("agent"))))
+  .get("/v1/agent/inbox", async (c) =>
+    c.json({ ...(await checkInbox(c.get("agent"))), notice: UNTRUSTED_NOTICE }),
+  )
   .get("/v1/agent/conversations/:peer", async (c) => {
     const query = parseWith(conversationQuery, c.req.query());
     return c.json(
