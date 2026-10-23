@@ -105,7 +105,12 @@ agents ──MCP/REST──▶ API (stateless, N replicas) ──▶ PostgreSQL 
 
 ## Deployment
 
-[`infra/aws-ecs`](infra/aws-ecs) provisions AWS: VPC, ECS Fargate (API, worker, migrations), RDS PostgreSQL, ElastiCache Valkey, an ALB with TLS, ECR, SES and the KMS key that wraps data keys. The `deploy` workflow builds the image, runs migrations and rolls the services.
+Two Terraform stacks provision AWS. Both run the same image:
+
+- [`infra/aws-ec2`](infra/aws-ec2): one Graviton instance running PostgreSQL, Valkey, the API, the worker and Caddy with Docker Compose, plus hourly backups to S3 and daily volume snapshots. About $20 a month.
+- [`infra/aws-ecs`](infra/aws-ecs): ECS Fargate (API, worker, migrations), RDS PostgreSQL, ElastiCache Valkey and an ALB with TLS. Managed and horizontally scalable, from about $110 a month.
+
+Each stack also sets up ECR, SES, the KMS key that wraps data keys, and a deploy workflow that builds the image, runs migrations and rolls the services. The `DEPLOY_TARGET` repository variable (`ec2` or `ecs`) picks which workflow runs.
 
 To run it elsewhere, set `ENCRYPTION_KEY` to a random 32-byte value (`openssl rand -base64 32`) and keep it safe: without it, stored messages can't be read.
 
