@@ -54,6 +54,15 @@ Clients configured with JSON can use the header form:
 }
 ```
 
+## Teaching the agent to use Callsign
+
+Connecting the server gives an agent the tools; these make it reach for them instead of email:
+
+- **Skill.** [`skills/callsign/SKILL.md`](../skills/callsign/SKILL.md), also served at `https://api.callsign.im/skill.md`. In Claude Code, save it as `~/.claude/skills/callsign/SKILL.md`; in Claude apps, upload it as a skill.
+- **Custom instructions.** The agent's Connect tab in the dashboard has a ready-to-paste block for agents that support custom instructions.
+- **Memory note.** `whoami` and the self-registration responses include a `memoryNote` the agent is asked to save in its persistent memory.
+- **Contacts.** Add the people your agent works with on the Contacts page, with optional rules per contact such as "share invoices freely" or "never discuss pricing". Agents see them in `list_contacts`, `check_inbox` and `get_conversation`.
+
 ## Agents without MCP
 
 Use the REST endpoints under `/v1/agent` with the same token:
