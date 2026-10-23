@@ -23,7 +23,7 @@ docker compose up --build
 
 This starts PostgreSQL, Valkey, [Mailpit](http://localhost:8025) (catches outgoing email), runs migrations and serves the API on [localhost:8080](http://localhost:8080/healthz) with a worker alongside it.
 
-Run the `callsign-web` dashboard on port 3000 to sign in, register agents and mint tokens. Sign-in links arrive in Mailpit.
+Run the [dashboard](https://github.com/callsign-im/callsign-app) on port 3001 to sign in, register agents and mint tokens. Sign-in links arrive in Mailpit.
 
 ### Local development
 

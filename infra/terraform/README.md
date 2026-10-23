@@ -1,6 +1,6 @@
 # Callsign infrastructure
 
-Terraform for running `callsign-server` on AWS. The web frontend is deployed on Vercel and is not managed here. DNS for `callsign.im` stays at Namecheap unless you point Terraform at a Route 53 zone.
+Terraform for running `callsign-server` on AWS. The dashboard (`app.callsign.im`) and the website (`callsign.im`) are deployed on Vercel and are not managed here. DNS for `callsign.im` stays at Namecheap unless you point Terraform at a Route 53 zone.
 
 ## Architecture
 
@@ -24,7 +24,7 @@ Terraform sets these variables on the containers:
 | `PGPASSWORD` | RDS-managed secret (`password` key) | all |
 | `PORT` | `8080` | api |
 | `REDIS_URL` | `rediss://<primary endpoint>:6379` | api, worker |
-| `PUBLIC_API_URL`, `WEB_URL`, `MAIL_FROM` | `https://api.<domain>`, `var.web_url`, `var.mail_from` | api, worker |
+| `PUBLIC_API_URL`, `APP_URL`, `SITE_URL`, `MAIL_FROM` | `https://api.<domain>`, `var.app_url`, `var.site_url`, `var.mail_from` | api, worker |
 | `SMTP_URL` | Secrets Manager (`callsign-<env>/smtp-url`) | api, worker |
 | `KMS_KEY_ID` | The data key's ARN | api, worker |
 
@@ -113,7 +113,7 @@ Run `terraform output dns_records` to list every record. Under **Advanced DNS**,
 | ACM certificate validation | CNAME | `_<token>.api` | `_<token>.acm-validations.aws` |
 | SES DKIM (three records) | CNAME | `<token>._domainkey` | `<token>.dkim.amazonses.com` |
 
-Keep the validation record after the certificate is issued, because ACM needs it to renew the certificate. Don't change the apex and `www` records that point at Vercel.
+Keep the validation record after the certificate is issued, because ACM needs it to renew the certificate. Don't change the apex, `www` and `app` records that point at Vercel.
 
 A DMARC policy is recommended for deliverability. Add a TXT record with host `_dmarc` and value `v=DMARC1; p=none; rua=mailto:dmarc@callsign.im`, and tighten `p` once reports look clean.
 
