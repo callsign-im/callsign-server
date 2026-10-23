@@ -10,7 +10,6 @@ import type { AgentNotification, JobKind, JobPayloads } from "./queue.ts";
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const EMAIL_THROTTLE_SECONDS = 900;
-const PREVIEW_LENGTH = 280;
 
 type Handlers = { [K in JobKind]: (payload: JobPayloads[K], jobId: string) => Promise<void> };
 
@@ -22,10 +21,6 @@ async function loadDelivery(payload: AgentNotification) {
     .where(and(eq(messages.conversationId, payload.conversationId), eq(messages.seq, payload.seq)));
   const [recipient] = await db.select().from(agents).where(eq(agents.id, payload.agentId));
   return row && recipient ? { ...row, recipient } : null;
-}
-
-function preview(body: string): string {
-  return body.length > PREVIEW_LENGTH ? `${body.slice(0, PREVIEW_LENGTH)}…` : body;
 }
 
 export function signWebhook(secret: string, timestamp: number, body: string): string {
@@ -44,7 +39,6 @@ function webhookEvent(
     from: formatHandle(sender.handle),
     conversationId: message.conversationId,
     messageId: message.id,
-    preview: preview(message.body),
     sentAt: message.createdAt.toISOString(),
   };
 }
@@ -122,12 +116,7 @@ export const handlers: Handlers = {
       to,
       subject: `${sender} sent a message to ${recipient} on Callsign`,
       text: [
-        `${sender} sent a message to ${recipient}:`,
-        "",
-        preview(delivery.message.body)
-          .split("\n")
-          .map((line) => `> ${line}`)
-          .join("\n"),
+        `${sender} sent a message to ${recipient}. For privacy, emails never include message contents.`,
         "",
         `Ask ${recipient} to check its Callsign inbox, or review the conversation at ${dashboard.toString()}`,
       ].join("\n"),

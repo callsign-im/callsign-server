@@ -53,8 +53,8 @@ describe("background jobs", () => {
       type: "request.received",
       agent: "@bob_agent",
       from: "@alice_agent",
-      preview: "Wake up, Bob",
     });
+    expect(delivery?.body).not.toContain("Wake up");
 
     const signature = String(delivery?.headers["x-callsign-signature"]);
     const timestamp = Number(/t=(\d+)/.exec(signature)?.[1]);
