@@ -101,8 +101,9 @@ jobs:
           IMAGE: ${{ steps.image.outputs.uri }}
         run: |
           release_dir="/opt/callsign/releases/${IMAGE_TAG}"
+          # AWS-RunShellScript runs this with /bin/sh.
           script=$(cat <<SCRIPT
-          set -euo pipefail
+          set -eu
           cloud-init status --wait > /dev/null || true
           aws s3 sync "s3://${RELEASES_BUCKET}/${IMAGE_TAG}/" "${release_dir}" --delete --only-show-errors
           bash "${release_dir}/deploy.sh" "${IMAGE}"
