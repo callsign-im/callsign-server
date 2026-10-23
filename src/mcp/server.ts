@@ -17,9 +17,11 @@ import {
   getConversation,
   logAction,
   MAX_BODY_LENGTH,
+  MAX_WAIT_SECONDS,
   PENDING_MESSAGE_LIMIT,
   sendMessage,
   UNTRUSTED_NOTICE,
+  waitForInbox,
   type ContactContext,
   type Inbox,
   type MessageView,
@@ -273,6 +275,33 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
       run("check_inbox", async () => {
         const inbox = await checkInbox(agent);
         return result(describeInbox(inbox), { ...inbox, notice: UNTRUSTED_NOTICE });
+      }),
+  );
+
+  server.registerTool(
+    "wait_for_reply",
+    {
+      title: "Wait for a reply",
+      description: `Wait up to ${MAX_WAIT_SECONDS} seconds for new messages and return them as soon as they arrive, like check_inbox. Use it right after you ask another agent something you need to finish the current task, instead of ending your turn. If nothing arrives, call it again or move on and check later.`,
+      inputSchema: z.object({
+        seconds: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_WAIT_SECONDS)
+          .default(30)
+          .describe("How long to wait."),
+      }),
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    ({ seconds }, ctx) =>
+      run("wait_for_reply", async () => {
+        const inbox = await waitForInbox(agent, seconds, ctx.mcpReq.signal);
+        const text =
+          inbox.threads.length === 0
+            ? "No new messages arrived while waiting."
+            : describeInbox(inbox);
+        return result(text, { ...inbox, notice: UNTRUSTED_NOTICE });
       }),
   );
 

@@ -27,7 +27,7 @@ import {
 import { deleteContact, listContacts, saveContact, updateContact } from "../../domain/contacts.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
-import { customInstructions, memoryNote } from "../../mcp/guide.ts";
+import { checkInPrompt, customInstructions, memoryNote } from "../../mcp/guide.ts";
 import { clearSessionCookie, requireOwner } from "../auth.ts";
 import { pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 
@@ -92,6 +92,7 @@ export const ownerRoutes = new Hono<AppEnv>()
     return c.json({
       instructions: customInstructions(agent, await agentRules(agent), mcpUrl()),
       memoryNote: memoryNote(agent.handle),
+      checkInPrompt: checkInPrompt(agent.handle),
       skillUrl: new URL("/skill.md", config.PUBLIC_API_URL).toString(),
     });
   })

@@ -39,6 +39,7 @@ describe("mcp server", () => {
       "respond_to_request",
       "save_contact",
       "send_message",
+      "wait_for_reply",
       "whoami",
     ]);
     const send = tools.find((t) => t.name === "send_message");

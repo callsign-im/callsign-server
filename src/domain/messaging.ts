@@ -11,6 +11,7 @@ import {
 } from "../db/schema.ts";
 import { enqueue } from "../jobs/queue.ts";
 import type { DataKey } from "../lib/encryption.ts";
+import { subscribeToOwner } from "../lib/events.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
@@ -26,6 +27,10 @@ export const PENDING_MESSAGE_LIMIT = 3;
 const INBOX_THREAD_LIMIT = 20;
 const INBOX_MESSAGES_PER_THREAD = 50;
 const INBOX_EMPTY_TTL_SECONDS = 600;
+// Stays under the 60-second request timeout most MCP clients apply.
+export const MAX_WAIT_SECONDS = 50;
+const WAIT_POLL_MS = 10_000;
+const WAKING_EVENTS = new Set(["message.received", "request.received"]);
 
 export type MemberStatus = "active" | "pending" | "declined" | "blocked";
 export type SendStatus = "request_sent" | "awaiting_acceptance" | "delivered";
@@ -472,6 +477,46 @@ export async function checkInbox(agent: Agent): Promise<Inbox> {
 
   if (drained) await markInboxEmpty(agent.id, version);
   return { threads, hasMore, rules };
+}
+
+// Live events wake a waiting agent at once; polling covers events lost while Valkey is down.
+export async function waitForInbox(
+  agent: Agent,
+  seconds: number,
+  signal?: AbortSignal,
+): Promise<Inbox> {
+  const deadline = Date.now() + Math.min(seconds, MAX_WAIT_SECONDS) * 1000;
+  const handle = formatHandle(agent.handle);
+  let wakes = 0;
+  let wake = () => {};
+  const unsubscribe = subscribeToOwner(agent.ownerId, (event) => {
+    const type = event.event.type;
+    if (event.agent !== handle || typeof type !== "string" || !WAKING_EVENTS.has(type)) return;
+    wakes += 1;
+    wake();
+  });
+  const abort = () => wake();
+  signal?.addEventListener("abort", abort);
+
+  try {
+    for (;;) {
+      const seen = wakes;
+      const inbox = await checkInbox(agent);
+      const remaining = deadline - Date.now();
+      if (inbox.threads.length > 0 || remaining <= 0 || signal?.aborted) return inbox;
+      if (wakes !== seen) continue;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, Math.min(remaining, WAIT_POLL_MS));
+        wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+    }
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    unsubscribe();
+  }
 }
 
 export async function getConversation(

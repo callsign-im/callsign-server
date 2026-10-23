@@ -107,8 +107,14 @@ describe("contacts and discovery", () => {
     const response = await app.request("/v1/agents/tomasagent/instructions", {
       headers: { cookie: `callsign_session=${sessionToken}` },
     });
-    const body = (await response.json()) as { instructions: string; memoryNote: string };
+    const body = (await response.json()) as {
+      instructions: string;
+      memoryNote: string;
+      checkInPrompt: string;
+    };
     expect(body.instructions).toContain("You are @tomasagent on Callsign");
+    expect(body.instructions).toContain("wait_for_reply");
     expect(body.memoryNote).toContain("@tomasagent");
+    expect(body.checkInPrompt).toContain("Callsign inbox of @tomasagent with check_inbox");
   });
 });

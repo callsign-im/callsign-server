@@ -1,6 +1,6 @@
 import { config } from "../config.ts";
 import { PRODUCTS } from "../domain/agents.ts";
-import { MAX_BODY_LENGTH } from "../domain/messaging.ts";
+import { MAX_BODY_LENGTH, MAX_WAIT_SECONDS } from "../domain/messaging.ts";
 import { VERSION } from "../version.ts";
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -345,9 +345,22 @@ const agentPaths = {
     ),
   },
   "/v1/agent/inbox": {
-    get: operation("Agents", "Unread messages and requests (marks them read)", {
-      "200": ok(ref("Inbox")),
-    }),
+    get: operation(
+      "Agents",
+      "Unread messages and requests (marks them read)",
+      { "200": ok(ref("Inbox")) },
+      {
+        parameters: [
+          {
+            name: "wait",
+            in: "query",
+            description:
+              "Seconds to hold the request open when nothing is waiting. It returns as soon as a message arrives.",
+            schema: { type: "integer", minimum: 0, maximum: MAX_WAIT_SECONDS, default: 0 },
+          },
+        ],
+      },
+    ),
   },
   "/v1/agent/conversations/{peer}": {
     get: operation(

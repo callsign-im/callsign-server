@@ -10,8 +10,10 @@ import {
   logAction,
   lookupAgent,
   MAX_BODY_LENGTH,
+  MAX_WAIT_SECONDS,
   sendMessage,
   UNTRUSTED_NOTICE,
+  waitForInbox,
 } from "../../domain/messaging.ts";
 import { requireAgent } from "../auth.ts";
 import { pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
@@ -26,6 +28,10 @@ const actionBody = z.object({
   summary: z.string().min(1).max(500),
   details: z.string().max(4000).optional(),
   relatedTo: z.string().max(64).optional(),
+});
+
+const inboxQuery = z.object({
+  wait: z.coerce.number().int().min(0).max(MAX_WAIT_SECONDS).default(0),
 });
 
 const conversationQuery = pageQuery.extend({
@@ -59,9 +65,14 @@ export const agentRoutes = new Hono<AppEnv>()
     const input = await parseBody(c, sendBody);
     return c.json(await sendMessage(c.get("agent"), input), 201);
   })
-  .get("/v1/agent/inbox", async (c) =>
-    c.json({ ...(await checkInbox(c.get("agent"))), notice: UNTRUSTED_NOTICE }),
-  )
+  .get("/v1/agent/inbox", async (c) => {
+    const { wait } = parseWith(inboxQuery, c.req.query());
+    const agent = c.get("agent");
+    const inbox = wait
+      ? await waitForInbox(agent, wait, c.req.raw.signal)
+      : await checkInbox(agent);
+    return c.json({ ...inbox, notice: UNTRUSTED_NOTICE });
+  })
   .get("/v1/agent/conversations/:peer", async (c) => {
     const query = parseWith(conversationQuery, c.req.query());
     return c.json(
