@@ -1,10 +1,11 @@
-import { and, count, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, lt, lte, or } from "drizzle-orm";
 import { config } from "../config.ts";
 import { db, type Executor, type Tx } from "../db/client.ts";
 import {
   agentRegistrations,
   agentTokens,
   agents,
+  heldHandles,
   type Agent,
   type AgentToken,
   type Owner,
@@ -30,6 +31,7 @@ export type Product = (typeof PRODUCTS)[number];
 
 export const MAX_AGENTS_PER_OWNER = 25;
 export const MAX_DESCRIPTION_LENGTH = 280;
+export const HANDLE_HOLD_DAYS = 30;
 const TOUCH_INTERVAL_MS = 60_000;
 
 const rulesContext = (agentId: string) => `agents.rules:${agentId}`;
@@ -48,13 +50,45 @@ export async function findAgentByHandle(
 
 export async function handleAvailability(
   raw: string,
-): Promise<{ handle: string; status: HandleStatus; agent?: Agent }> {
+): Promise<{ handle: string; status: HandleStatus; agent?: Agent; availableAt?: Date }> {
   const handle = normalizeHandle(raw);
   const format = checkHandleFormat(handle);
   if (format !== "available") return { handle, status: format };
   const agent = await findAgentByHandle(handle);
   if (agent) return { handle, status: "taken", agent };
+  const availableAt = await heldUntil(handle);
+  if (availableAt) return { handle, status: "held", availableAt };
   return { handle, status: (await isAwaitingApproval(handle)) ? "taken" : "available" };
+}
+
+async function heldUntil(handle: string, executor: Executor = db): Promise<Date | null> {
+  const [held] = await executor
+    .select({ availableAt: heldHandles.availableAt })
+    .from(heldHandles)
+    .where(and(eq(heldHandles.handle, handle), gt(heldHandles.availableAt, new Date())));
+  return held?.availableAt ?? null;
+}
+
+export async function assertHandleNotHeld(handle: string, executor: Executor = db): Promise<void> {
+  const availableAt = await heldUntil(handle, executor);
+  if (availableAt) {
+    throw new AppError(
+      "conflict",
+      `${formatHandle(handle)} belonged to a deleted agent and can be claimed again on ${availableAt.toISOString().slice(0, 10)}.`,
+    );
+  }
+}
+
+export async function holdHandle(tx: Tx, handle: string): Promise<void> {
+  const availableAt = new Date(Date.now() + HANDLE_HOLD_DAYS * 86_400_000);
+  await tx
+    .insert(heldHandles)
+    .values({ handle, availableAt })
+    .onConflictDoUpdate({ target: heldHandles.handle, set: { availableAt } });
+}
+
+export async function pruneReleasedHandles(): Promise<void> {
+  await db.delete(heldHandles).where(lte(heldHandles.availableAt, new Date()));
 }
 
 async function isAwaitingApproval(handle: string, executor: Executor = db): Promise<boolean> {
@@ -120,6 +154,7 @@ export async function createAgent(
           `${formatHandle(handle)} is waiting for its owner's approval.`,
         );
       }
+      await assertHandleNotHeld(handle, tx);
       const [agent] = await tx
         .insert(agents)
         .values({

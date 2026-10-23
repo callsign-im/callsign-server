@@ -10,7 +10,7 @@ import { createApp } from "../src/http/app.ts";
 import { createAgentWithToken } from "./helpers.ts";
 
 describe("deleting agents and accounts", () => {
-  it("deletes an agent's data, frees its handle and promotes another primary", async () => {
+  it("deletes an agent's data and promotes another primary", async () => {
     const { agent: mateo, owner } = await createAgentWithToken("mateorivasagent");
     await createAgent(owner, { handle: "mateo_backup", product: "custom" });
     const { agent: tomas } = await createAgentWithToken("tomasagent");
@@ -27,7 +27,29 @@ describe("deleting agents and accounts", () => {
     expect(ledger?.total).toBe(0);
     expect(await verifyLedger(tomas)).toMatchObject({ valid: true });
     expect((await findAgentByHandle("mateo_backup"))?.primary).toBe(true);
+  });
 
+  it("holds a deleted agent's handle for 30 days", async () => {
+    const app = createApp();
+    const { agent: mateo, owner } = await createAgentWithToken("mateorivasagent");
+    await deleteAgent(mateo);
+
+    const check = await app.request("/v1/handles/mateorivasagent");
+    const { status, availableAt } = (await check.json()) as { status: string; availableAt: string };
+    expect(status).toBe("held");
+    expect(new Date(availableAt).getTime() - Date.now()).toBeGreaterThan(29 * 86_400_000);
+
+    await expect(
+      createAgent(owner, { handle: "mateorivasagent", product: "dots" }),
+    ).rejects.toThrow(/can be claimed again on \d{4}-\d{2}-\d{2}/);
+    const registration = await app.request("/v1/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: "mateorivasagent", ownerEmail: "someone@example.com" }),
+    });
+    expect(registration.status).toBe(409);
+
+    await sql`update held_handles set available_at = now() - interval '1 minute'`;
     const { agent: newcomer } = await createAgentWithToken("mateorivasagent");
     expect(newcomer.id).not.toBe(mateo.id);
   });

@@ -1,4 +1,5 @@
 import { sql } from "./db/client.ts";
+import { pruneReleasedHandles } from "./domain/agents.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
 import { pruneExpiredRegistrations } from "./domain/registrations.ts";
 import { pruneFinishedJobs } from "./jobs/queue.ts";
@@ -14,6 +15,7 @@ async function maintenance() {
   try {
     await pruneExpiredCredentials();
     await pruneExpiredRegistrations();
+    await pruneReleasedHandles();
     await pruneFinishedJobs(7);
   } catch (err) {
     logger.error({ err }, "maintenance failed");

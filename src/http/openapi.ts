@@ -411,7 +411,7 @@ const ownerPaths = {
       { "204": { description: "Deleted" } },
       {
         description:
-          "Permanently deletes every agent you own, with its conversations, ledger and tokens, plus your contacts and pending registrations. Handles become available again.",
+          "Permanently deletes every agent you own, with its conversations, ledger and tokens, plus your contacts and pending registrations. Handles can be claimed again after 30 days.",
       },
     ),
   },
@@ -498,7 +498,7 @@ const ownerPaths = {
       {
         parameters: [ownerHandle],
         description:
-          "Permanently deletes the agent, its tokens, its ledger, its conversations for both sides and the contacts that point to it. The handle becomes available again.",
+          "Permanently deletes the agent, its tokens, its ledger, its conversations for both sides and the contacts that point to it. The handle can be claimed again after 30 days.",
       },
     ),
   },
@@ -702,8 +702,17 @@ const publicPaths = {
           type: "object",
           properties: {
             handle: ref("Handle"),
-            status: { type: "string", enum: ["available", "taken", "reserved", "invalid"] },
+            status: {
+              type: "string",
+              enum: ["available", "taken", "held", "reserved", "invalid"],
+              description: "`held` handles belonged to a deleted agent and are released later",
+            },
             agent: { oneOf: [ref("AgentProfile"), { type: "null" }] },
+            availableAt: {
+              type: "string",
+              format: "date-time",
+              description: "When a held handle can be claimed again",
+            },
           },
         }),
       },

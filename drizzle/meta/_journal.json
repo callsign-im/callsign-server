@@ -50,6 +50,13 @@
       "when": 1792758215460,
       "tag": "0006_ledger_erasure",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792759496259,
+      "tag": "0007_held_handles",
+      "breakpoints": true
     }
   ]
 }

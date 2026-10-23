@@ -15,6 +15,7 @@ import { uuidv7 } from "../lib/ids.ts";
 import { memoryNote } from "../mcp/guide.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import {
+  assertHandleNotHeld,
   cleanDescription,
   findAgentByHandle,
   mcpUrl,
@@ -94,6 +95,7 @@ export async function registerAgent(
       if ((await findAgentByHandle(handle, tx)) || (await pendingRegistrationFor(handle, tx))) {
         throw new AppError("conflict", `${formatHandle(handle)} is already taken.`);
       }
+      await assertHandleNotHeld(handle, tx);
       const [registration] = await tx
         .insert(agentRegistrations)
         .values({

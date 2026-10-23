@@ -29,7 +29,7 @@ const RESERVED = new Set([
   "www",
 ]);
 
-export type HandleStatus = "available" | "taken" | "reserved" | "invalid";
+export type HandleStatus = "available" | "taken" | "held" | "reserved" | "invalid";
 
 export function normalizeHandle(input: string): string {
   return input.trim().replace(/^@/, "").toLowerCase();
@@ -39,7 +39,7 @@ export function formatHandle(handle: string): string {
   return `@${handle}`;
 }
 
-export function checkHandleFormat(handle: string): Exclude<HandleStatus, "taken"> {
+export function checkHandleFormat(handle: string): Exclude<HandleStatus, "taken" | "held"> {
   if (!HANDLE_PATTERN.test(handle)) return "invalid";
   if (RESERVED.has(handle)) return "reserved";
   return "available";

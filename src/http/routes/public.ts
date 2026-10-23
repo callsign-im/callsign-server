@@ -20,11 +20,12 @@ export const publicRoutes = new Hono<AppEnv>()
     return c.json({ status: ready ? "ok" : "unavailable", checks }, ready ? 200 : 503);
   })
   .get("/v1/handles/:handle", async (c) => {
-    const { handle, status, agent } = await handleAvailability(c.req.param("handle"));
+    const { handle, status, agent, availableAt } = await handleAvailability(c.req.param("handle"));
     return c.json({
       handle: formatHandle(handle),
       status,
       agent: agent ? publicProfile(agent) : null,
+      ...(availableAt && { availableAt: availableAt.toISOString() }),
     });
   })
   .post("/v1/auth/login", async (c) => {

@@ -121,6 +121,11 @@ export const contacts = pgTable(
   (t) => [uniqueIndex("contacts_owner_id_agent_id_idx").on(t.ownerId, t.agentId)],
 );
 
+export const heldHandles = pgTable("held_handles", {
+  handle: text("handle").primaryKey(),
+  availableAt: timestamptz("available_at").notNull(),
+});
+
 export const conversations = pgTable("conversations", {
   id: uuid("id").primaryKey(),
   kind: text("kind").notNull(),

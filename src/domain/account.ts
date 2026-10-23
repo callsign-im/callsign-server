@@ -15,7 +15,7 @@ import {
   type Agent,
   type Owner,
 } from "../db/schema.ts";
-import { agentRules, listOwnerAgents, publicProfile } from "./agents.ts";
+import { agentRules, holdHandle, listOwnerAgents, publicProfile } from "./agents.ts";
 import { listContacts } from "./contacts.ts";
 import { appendLedgerEvent, broadcast, exportLedger, type RecordedEvent } from "./ledger.ts";
 import { exportConversations, forgetInbox } from "./messaging.ts";
@@ -39,6 +39,7 @@ async function eraseAgent(tx: Tx, agent: Agent): Promise<void> {
   await tx.execute(sql`select set_config('callsign.erasing_agent', ${agent.id}, true)`);
   await tx.delete(ledgerEvents).where(eq(ledgerEvents.agentId, agent.id));
   await tx.delete(agents).where(eq(agents.id, agent.id));
+  await holdHandle(tx, agent.handle);
 }
 
 async function ensurePrimaryAgent(tx: Tx, ownerId: string): Promise<RecordedEvent[]> {
