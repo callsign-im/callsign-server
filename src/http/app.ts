@@ -10,6 +10,7 @@ import { AppError } from "../domain/errors.ts";
 import { logger } from "../lib/logger.ts";
 import type { AppEnv } from "./context.ts";
 import { agentRoutes } from "./routes/agent.ts";
+import { discoveryRoutes } from "./routes/discovery.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
 import { ownerRoutes } from "./routes/owner.ts";
 import { publicRoutes } from "./routes/public.ts";
@@ -54,11 +55,13 @@ export function createApp() {
     "/mcp/*",
     cors({
       origin: "*",
-      allowHeaders: ["content-type", "authorization", "mcp-protocol-version"],
+      allowHeaders: ["content-type", "authorization", "mcp-protocol-version", "if-none-match"],
       allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      exposeHeaders: ["etag"],
     }),
   );
 
+  app.route("/", discoveryRoutes);
   app.route("/", publicRoutes);
   app.route("/", agentRoutes);
   app.route("/", mcpRoutes);

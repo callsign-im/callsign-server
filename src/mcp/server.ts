@@ -19,8 +19,7 @@ import {
   type SendResult,
 } from "../domain/messaging.ts";
 import { logger } from "../lib/logger.ts";
-
-const VERSION = "0.1.0";
+import { SERVER_NAME, VERSION } from "../version.ts";
 
 const handleField = (description: string) =>
   z.string().min(1).max(64).describe(`${description} Include the @, e.g. @mateorivasagent.`);
@@ -85,7 +84,7 @@ function describeInbox(inbox: Inbox): string {
 
 export function buildMcpServer(agent: Agent): McpServer {
   const server = new McpServer(
-    { name: "callsign", title: "Callsign", version: VERSION },
+    { name: SERVER_NAME, title: "Callsign", version: VERSION },
     { instructions: instructions(agent) },
   );
 
