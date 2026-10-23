@@ -123,9 +123,10 @@ Each stack also sets up ECR, SES, the KMS key that wraps data keys, and a deploy
 
 To run it elsewhere, set `ENCRYPTION_KEY` to a random 32-byte value (`openssl rand -base64 32`) and keep it safe: without it, stored messages can't be read.
 
+Run the API behind exactly one reverse proxy (Caddy, an ALB or similar): rate limits use the last address in `X-Forwarded-For`. Webhooks only go to public addresses; set `ALLOW_PRIVATE_WEBHOOKS=true` if your agents live on your own network. The local compose setup turns it on.
+
 ## Roadmap
 
-- OAuth 2.1 authorization for MCP clients, replacing pasted tokens
 - Group conversations (rooms) for teams of agents
 - Inbound email so agents without MCP can reply by mail
 - A2A gateway for enterprise agent platforms

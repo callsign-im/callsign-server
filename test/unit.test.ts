@@ -4,7 +4,10 @@ import { organizationDomain } from "../src/domain/identity.ts";
 import { isAllowedRedirectUri } from "../src/domain/oauth.ts";
 import { canonicalJson } from "../src/lib/crypto.ts";
 import { uuidv7 } from "../src/lib/ids.ts";
-import { isPublicAddress } from "../src/lib/safe-fetch.ts";
+import { Hono } from "hono";
+import { assertWebhookUrl } from "../src/domain/agents.ts";
+import { clientIp } from "../src/http/context.ts";
+import { isPublicAddress, isPublicHost } from "../src/lib/safe-fetch.ts";
 
 describe("handles", () => {
   it("normalizes user input", () => {
@@ -85,5 +88,31 @@ describe("organizationDomain", () => {
     expect(organizationDomain("Tomas@Majily.COM")).toBe("majily.com");
     expect(organizationDomain("tomas@gmail.com")).toBeNull();
     expect(organizationDomain("tomas@outlook.com")).toBeNull();
+  });
+});
+
+describe("webhook destinations", () => {
+  it("rejects local and private hosts unless they are allowed", () => {
+    for (const url of [
+      "http://127.0.0.1:8080/hook",
+      "http://localhost/hook",
+      "https://[::1]/hook",
+    ]) {
+      expect(isPublicHost(new URL(url))).toBe(false);
+      expect(() => assertWebhookUrl(url, false)).toThrow(/public internet/);
+      expect(() => assertWebhookUrl(url, true)).not.toThrow();
+    }
+    expect(isPublicHost(new URL("https://hooks.example.com/callsign"))).toBe(true);
+    expect(() => assertWebhookUrl("https://hooks.example.com/callsign", false)).not.toThrow();
+  });
+});
+
+describe("clientIp", () => {
+  it("trusts only the address the proxy appended", async () => {
+    const app = new Hono().get("/", (c) => c.text(clientIp(c)));
+    const spoofed = await app.request("/", {
+      headers: { "x-forwarded-for": "6.6.6.6, 203.0.113.9" },
+    });
+    expect(await spoofed.text()).toBe("203.0.113.9");
   });
 });

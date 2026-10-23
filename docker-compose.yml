@@ -16,6 +16,8 @@ x-app: &app
     MAIL_FROM: Callsign <no-reply@callsign.local>
     # Development only. Generate a real key with: openssl rand -base64 32
     ENCRYPTION_KEY: ${ENCRYPTION_KEY:-Z2hk0O3M++IGsMeyDTu9URiT9j2DG2wJIAF9AG7PhT4=}
+    # Lets webhooks reach services on this machine; production keeps it off.
+    ALLOW_PRIVATE_WEBHOOKS: ${ALLOW_PRIVATE_WEBHOOKS:-true}
 
 services:
   postgres:

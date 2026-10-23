@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
-import { request } from "node:https";
+import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 
 const MAX_BYTES = 64 * 1024;
@@ -66,50 +67,91 @@ const publicLookup: LookupFunction = (hostname, options, callback) => {
   );
 };
 
-export type PublicJson = { body: unknown; maxAge: number | null };
+function isLocalName(hostname: string): boolean {
+  return hostname === "localhost" || hostname.endsWith(".localhost");
+}
 
-export function fetchPublicJson(url: URL): Promise<PublicJson> {
-  if (url.protocol !== "https:") return Promise.reject(new Error("only https URLs are fetched"));
+export function isPublicHost(url: URL): boolean {
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (isLocalName(host)) return false;
+  return isIP(host) === 0 || isPublicAddress(host);
+}
+
+type Response = { status: number; headers: IncomingHttpHeaders; body: Buffer };
+
+// Node skips the lookup for IP literals, so those are checked up front; redirects are never followed.
+function send(
+  url: URL,
+  options: { method: "GET" | "POST"; headers: Record<string, string>; body?: string },
+  { allowPrivate = false, timeoutMs = TIMEOUT_MS } = {},
+): Promise<Response> {
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return Promise.reject(new Error(`unsupported protocol ${url.protocol}`));
+  }
+  if (!allowPrivate && !isPublicHost(url)) {
+    return Promise.reject(new Error(`${url.hostname} is not a public address`));
+  }
+  const request = url.protocol === "https:" ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
     const req = request(
       url,
       {
-        lookup: publicLookup,
-        timeout: TIMEOUT_MS,
-        headers: { accept: "application/json" },
+        method: options.method,
+        headers: options.headers,
+        timeout: timeoutMs,
+        ...(!allowPrivate && { lookup: publicLookup }),
       },
       (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error(`metadata request returned ${res.statusCode}`));
-          return;
-        }
         const chunks: Buffer[] = [];
         let size = 0;
         res.on("data", (chunk: Buffer) => {
           size += chunk.length;
           if (size > MAX_BYTES) {
-            req.destroy(new Error("metadata document is too large"));
+            req.destroy(new Error("response is too large"));
             return;
           }
           chunks.push(chunk);
         });
-        res.on("end", () => {
-          try {
-            const maxAge = /max-age=(\d+)/.exec(res.headers["cache-control"] ?? "")?.[1];
-            resolve({
-              body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
-              maxAge: maxAge ? Number(maxAge) : null,
-            });
-          } catch {
-            reject(new Error("metadata document is not valid JSON"));
-          }
-        });
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks),
+          }),
+        );
         res.on("error", reject);
       },
     );
-    req.on("timeout", () => req.destroy(new Error("metadata request timed out")));
+    req.on("timeout", () => req.destroy(new Error(`request to ${url.host} timed out`)));
     req.on("error", reject);
-    req.end();
+    req.end(options.body);
   });
+}
+
+export type PublicJson = { body: unknown; maxAge: number | null };
+
+export async function fetchPublicJson(url: URL): Promise<PublicJson> {
+  if (url.protocol !== "https:") throw new Error("only https URLs are fetched");
+  const res = await send(url, { method: "GET", headers: { accept: "application/json" } });
+  if (res.status !== 200) throw new Error(`metadata request returned ${res.status}`);
+  const maxAge = /max-age=(\d+)/.exec(res.headers["cache-control"] ?? "")?.[1];
+  try {
+    return { body: JSON.parse(res.body.toString("utf8")), maxAge: maxAge ? Number(maxAge) : null };
+  } catch {
+    throw new Error("metadata document is not valid JSON");
+  }
+}
+
+export async function postJson(
+  url: URL,
+  body: string,
+  headers: Record<string, string>,
+  options: { allowPrivate: boolean; timeoutMs: number },
+): Promise<number> {
+  const res = await send(
+    url,
+    { method: "POST", headers: { ...headers, "content-type": "application/json" }, body },
+    options,
+  );
+  return res.status;
 }

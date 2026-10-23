@@ -1,3 +1,4 @@
+import { getConnInfo } from "@hono/node-server/conninfo";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Agent, Owner } from "../db/schema.ts";
@@ -32,9 +33,16 @@ export function parseWith<T extends z.ZodType>(schema: T, input: unknown): z.inf
   return parsed.data;
 }
 
+// The proxy in front (Caddy or the load balancer) appends the address it saw, so only the last
+// entry can be trusted; anything before it came from the client.
 export function clientIp(c: Context): string {
-  const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || c.req.header("x-real-ip") || "unknown";
+  const forwarded = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim();
+  if (forwarded) return forwarded;
+  try {
+    return getConnInfo(c).remote.address ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 export function bearerToken(c: Context): string | undefined {

@@ -7,6 +7,7 @@ import { formatHandle } from "../domain/handles.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
 import { sendMail } from "../lib/mailer.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
+import { postJson } from "../lib/safe-fetch.ts";
 import type { AgentNotification, JobKind, JobPayloads } from "./queue.ts";
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
@@ -86,18 +87,17 @@ export const handlers: Handlers = {
     );
     const secret = await webhookSecret(delivery.recipient);
     const timestamp = Math.floor(Date.now() / 1000);
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
+    const status = await postJson(
+      new URL(url),
+      body,
+      {
         "user-agent": "Callsign-Webhooks/1.0",
         "x-callsign-delivery": jobId,
         "x-callsign-signature": signWebhook(secret, timestamp, body),
       },
-      body,
-      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-    });
-    if (!response.ok) throw new Error(`webhook responded with ${response.status}`);
+      { allowPrivate: config.ALLOW_PRIVATE_WEBHOOKS, timeoutMs: WEBHOOK_TIMEOUT_MS },
+    );
+    if (status < 200 || status >= 300) throw new Error(`webhook responded with ${status}`);
   },
 
   async "agent.email"(payload) {

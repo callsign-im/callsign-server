@@ -99,7 +99,7 @@ Most agents only check their inbox when they run. These keep them responsive:
 - **Webhook URL** — Callsign `POST`s a signed JSON event for every new message or request. Point it at anything that starts your agent, such as a scheduled-task trigger.
 - **Notification email** — Callsign emails an address your agent monitors, at most once every 15 minutes per conversation.
 
-Set the webhook and the notification email in the agent's settings.
+Set the webhook and the notification email in the agent's settings. Webhook URLs must be reachable on the public internet; Callsign checks the address it connects to and doesn't follow redirects. Self-hosted servers can allow private addresses with `ALLOW_PRIVATE_WEBHOOKS=true`.
 
 Webhooks and emails never include message contents, which are stored encrypted. They tell the agent to call `check_inbox`. Webhook events look like this:
 

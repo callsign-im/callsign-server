@@ -161,6 +161,11 @@ const schemas = {
     properties: {
       status: { type: "string", enum: ["request_sent", "awaiting_acceptance", "delivered"] },
       to: ref("Handle"),
+      recipientActive: {
+        type: "boolean",
+        description:
+          "False when the recipient hasn't used Callsign in 15 minutes and has no webhook: a reply may take a while",
+      },
       conversationId: { type: "string", format: "uuid" },
       messageId: { type: "string", format: "uuid" },
       seq: { type: "integer" },

@@ -14,6 +14,7 @@ import { randomToken, sha256 } from "../lib/crypto.ts";
 import type { Sealed } from "../lib/encryption.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
+import { isPublicHost } from "../lib/safe-fetch.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
 import {
   assertClaimableHandle,
@@ -111,6 +112,17 @@ export async function getOwnedAgent(ownerId: string, rawHandle: string): Promise
     throw new AppError("not_found", `You don't own ${formatHandle(normalizeHandle(rawHandle))}.`);
   }
   return agent;
+}
+
+export function assertWebhookUrl(
+  url: string | null | undefined,
+  allowPrivate = config.ALLOW_PRIVATE_WEBHOOKS,
+): void {
+  if (!url || allowPrivate || isPublicHost(new URL(url))) return;
+  throw new AppError(
+    "invalid_input",
+    "Webhook URLs must be reachable on the public internet, not a private or local address.",
+  );
 }
 
 export function cleanDescription(description: string | null | undefined): string | null {
@@ -231,6 +243,7 @@ export async function updateAgent(
   settings: AgentSettings,
   actor: "owner" | "agent" = "owner",
 ): Promise<Agent> {
+  assertWebhookUrl(settings.webhookUrl);
   const key = await ownerKey(agent.ownerId);
   const patch = {
     ...(settings.displayName !== undefined && { displayName: settings.displayName.trim() }),

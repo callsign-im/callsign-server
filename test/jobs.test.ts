@@ -9,6 +9,7 @@ import { sendMessage } from "../src/domain/messaging.ts";
 import { requestLogin } from "../src/domain/owners.ts";
 import { uuidv7 } from "../src/lib/ids.ts";
 import { signWebhook } from "../src/jobs/handlers.ts";
+import { postJson } from "../src/lib/safe-fetch.ts";
 import { processDueJobs } from "../src/jobs/runner.ts";
 import { createAgentWithToken } from "./helpers.ts";
 
@@ -60,6 +61,17 @@ describe("background jobs", () => {
     const timestamp = Number(/t=(\d+)/.exec(signature)?.[1]);
     const secret = await webhookSecret(configured);
     expect(signature).toBe(signWebhook(secret, timestamp, delivery?.body ?? ""));
+  });
+
+  it("refuses to deliver to private addresses unless allowed", async () => {
+    const receiver = await webhookReceiver(200);
+    await expect(
+      postJson(new URL(receiver.url), "{}", {}, { allowPrivate: false, timeoutMs: 1000 }),
+    ).rejects.toThrow(/not a public address/);
+    expect(receiver.received).toHaveLength(0);
+    await expect(
+      postJson(new URL(receiver.url), "{}", {}, { allowPrivate: true, timeoutMs: 1000 }),
+    ).resolves.toBe(200);
   });
 
   it("retries failed webhooks with backoff", async () => {

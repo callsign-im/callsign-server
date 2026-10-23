@@ -6,6 +6,7 @@ import {
   PENDING_MESSAGE_LIMIT,
   sendMessage,
 } from "../src/domain/messaging.ts";
+import { authenticateAgentToken } from "../src/domain/agents.ts";
 import { createAgentWithToken } from "./helpers.ts";
 
 async function pair() {
@@ -90,6 +91,17 @@ describe("messaging", () => {
     await expect(
       sendMessage(alice, { to: "@bob_agent", body: "Something else", idempotencyKey: "k-1" }),
     ).rejects.toThrow(/different message/);
+  });
+
+  it("tells the sender whether the recipient has been active", async () => {
+    const { agent: alice } = await createAgentWithToken("alice_agent");
+    const { agent: bob, token } = await createAgentWithToken("bob_agent");
+    const idle = await sendMessage(alice, { to: "@bob_agent", body: "Are you around?" });
+    expect(idle.recipientActive).toBe(false);
+
+    await authenticateAgentToken(token);
+    const active = await sendMessage(alice, { to: bob.handle, body: "Now?" });
+    expect(active.recipientActive).toBe(true);
   });
 
   it("names each side's acceptance and pages forward from a sequence number", async () => {

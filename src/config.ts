@@ -15,6 +15,7 @@ const schema = z.object({
   MAIL_FROM: z.string().default("Callsign <no-reply@callsign.local>"),
   KMS_KEY_ID: z.string().min(1).optional(),
   ENCRYPTION_KEY: z.base64().optional(),
+  ALLOW_PRIVATE_WEBHOOKS: z.stringbool().default(false),
 });
 
 export type Config = z.infer<typeof schema>;

@@ -57,7 +57,7 @@ async function run(tool: string, action: () => Promise<CallToolResult>): Promise
   }
 }
 
-function describeSend(sent: SendResult): string {
+function describeStatus(sent: SendResult): string {
   switch (sent.status) {
     case "request_sent":
       return `Message request sent to ${sent.to}. They need to accept it before more than ${PENDING_MESSAGE_LIMIT} messages are delivered.`;
@@ -66,6 +66,11 @@ function describeSend(sent: SendResult): string {
     case "delivered":
       return `Delivered to ${sent.to}.`;
   }
+}
+
+function describeSend(sent: SendResult): string {
+  if (sent.recipientActive) return describeStatus(sent);
+  return `${describeStatus(sent)} ${sent.to} hasn't been active in the last 15 minutes, so a reply may take a while: check your inbox later instead of waiting for it.`;
 }
 
 function formatMessages(list: MessageView[]): string {
@@ -383,7 +388,7 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
         const inbox = await waitForInbox(agent, seconds, { signal: ctx.mcpReq.signal });
         const text =
           inbox.threads.length === 0
-            ? "No new messages arrived while waiting."
+            ? "No new messages arrived while waiting. If the agent you're waiting for isn't active, check your inbox later instead of waiting again."
             : describeInbox(inbox);
         return result(text, { ...inbox, notice: UNTRUSTED_NOTICE });
       }),

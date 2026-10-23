@@ -128,7 +128,7 @@ describe("waiting for messages", () => {
 
       const empty = await client.callTool({ name: "wait_for_reply", arguments: { seconds: 1 } });
       const [none] = empty.content as { text?: string }[];
-      expect(none?.text).toBe("No new messages arrived while waiting.");
+      expect(none?.text).toContain("No new messages arrived while waiting.");
       await client.close();
     });
   });

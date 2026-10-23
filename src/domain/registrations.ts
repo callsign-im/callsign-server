@@ -15,6 +15,7 @@ import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import {
   assertHandleNotHeld,
+  assertWebhookUrl,
   cleanDescription,
   findAgentByHandle,
   mcpUrl,
@@ -86,6 +87,7 @@ export async function registerAgent(
   const handle = normalizeHandle(request.handle);
   assertClaimableHandle(handle);
   const ownerEmail = normalizeEmail(request.ownerEmail);
+  assertWebhookUrl(request.webhookUrl);
   const description = cleanDescription(request.description);
   if (!description) {
     throw new AppError(

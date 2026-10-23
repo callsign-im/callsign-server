@@ -37,6 +37,7 @@ const INBOX_THREAD_LIMIT = 20;
 const INBOX_MESSAGES_PER_THREAD = 50;
 const INBOX_EMPTY_TTL_SECONDS = 600;
 const INBOX_REPLAY_LIMIT = 200;
+const ACTIVE_WINDOW_MS = 15 * 60_000;
 // Stays under the 60-second request timeout most MCP clients apply.
 export const MAX_WAIT_SECONDS = 50;
 const WAIT_POLL_MS = 10_000;
@@ -51,6 +52,7 @@ export type ContactDecision = "accept" | "decline" | "block" | "unblock";
 export type SendResult = {
   status: SendStatus;
   to: string;
+  recipientActive: boolean;
   conversationId: string;
   messageId: string;
   seq: number;
@@ -98,6 +100,12 @@ function contactContext(contact: ContactRecord | undefined): ContactContext {
 
 function sameOwner(a: Agent, b: Agent): boolean {
   return a.ownerId === b.ownerId;
+}
+
+// Recent activity or a webhook that wakes the agent up means a reply is likely to come soon.
+function likelyActive(agent: Agent): boolean {
+  if (agent.webhookUrl) return true;
+  return agent.lastSeenAt !== null && Date.now() - agent.lastSeenAt.getTime() < ACTIVE_WINDOW_MS;
 }
 
 export function acceptance(status: string | null | undefined): Acceptance | null {
@@ -347,6 +355,7 @@ async function deliver(
     result: {
       status,
       to,
+      recipientActive: likelyActive(recipient),
       conversationId: conversation.id,
       messageId,
       seq,
@@ -390,6 +399,7 @@ async function replayIdempotentSend(
         : "awaiting_acceptance"
       : "delivered",
     to: formatHandle(recipient.handle),
+    recipientActive: likelyActive(recipient),
     conversationId: row.message.conversationId,
     messageId: row.message.id,
     seq: row.message.seq,
