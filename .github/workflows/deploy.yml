@@ -1,0 +1,233 @@
+name: Deploy
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment to deploy to
+        type: environment
+        default: production
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment || 'production' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.environment || 'production' }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_API_SERVICE: ${{ vars.ECS_API_SERVICE }}
+      ECS_WORKER_SERVICE: ${{ vars.ECS_WORKER_SERVICE }}
+      ECS_API_TASK_FAMILY: ${{ vars.ECS_API_TASK_FAMILY }}
+      ECS_WORKER_TASK_FAMILY: ${{ vars.ECS_WORKER_TASK_FAMILY }}
+      ECS_MIGRATE_TASK_FAMILY: ${{ vars.ECS_MIGRATE_TASK_FAMILY }}
+      ECS_MIGRATE_NETWORK_CONFIGURATION: ${{ vars.ECS_MIGRATE_NETWORK_CONFIGURATION }}
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Check configuration
+        run: |
+          missing=0
+          for name in AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY ECS_CLUSTER ECS_API_SERVICE ECS_WORKER_SERVICE \
+            ECS_API_TASK_FAMILY ECS_WORKER_TASK_FAMILY ECS_MIGRATE_TASK_FAMILY ECS_MIGRATE_NETWORK_CONFIGURATION; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing variable ${name}. Set it from 'terraform output github_actions_variables'."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          echo "uri=${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" > /dev/null 2>&1; then
+            echo "Image ${IMAGE_TAG} already exists; skipping build."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.image.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push image
+        if: steps.image.outputs.exists == 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ steps.image.outputs.uri }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Register task definitions
+        id: task-definitions
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: |
+          shopt -s inherit_errexit
+
+          # Copies the latest revision of a family (including any changes applied by
+          # Terraform) and swaps in the new image.
+          register() {
+            local family="$1" container="$2"
+            aws ecs describe-task-definition --task-definition "$family" --query taskDefinition --output json \
+              | jq --arg container "$container" --arg image "$IMAGE" '
+                  .containerDefinitions |= map(if .name == $container then .image = $image else . end)
+                  | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                        .registeredAt, .registeredBy, .deregisteredAt)' \
+              > "${RUNNER_TEMP}/${container}.json"
+            aws ecs register-task-definition \
+              --cli-input-json "file://${RUNNER_TEMP}/${container}.json" \
+              --query taskDefinition.taskDefinitionArn --output text
+          }
+
+          api=$(register "$ECS_API_TASK_FAMILY" api)
+          worker=$(register "$ECS_WORKER_TASK_FAMILY" worker)
+          migrate=$(register "$ECS_MIGRATE_TASK_FAMILY" migrate)
+          migrate_log_group=$(jq -r '.containerDefinitions[0].logConfiguration.options["awslogs-group"]' "${RUNNER_TEMP}/migrate.json")
+
+          {
+            echo "api=${api}"
+            echo "worker=${worker}"
+            echo "migrate=${migrate}"
+            echo "migrate-log-group=${migrate_log_group}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run database migrations
+        env:
+          TASK_DEFINITION: ${{ steps.task-definitions.outputs.migrate }}
+          LOG_GROUP: ${{ steps.task-definitions.outputs.migrate-log-group }}
+        run: |
+          task_arn=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$TASK_DEFINITION" \
+            --launch-type FARGATE \
+            --network-configuration "$ECS_MIGRATE_NETWORK_CONFIGURATION" \
+            --started-by "github-actions-${GITHUB_RUN_ID}" \
+            --query 'tasks[0].taskArn' --output text)
+
+          if [ -z "$task_arn" ] || [ "$task_arn" = "None" ]; then
+            echo "::error::Could not start the migration task."
+            exit 1
+          fi
+
+          echo "Started ${task_arn}"
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$task_arn"
+
+          exit_code=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$task_arn" \
+            --query "tasks[0].containers[?name=='migrate'] | [0].exitCode" --output text)
+          stopped_reason=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$task_arn" \
+            --query 'tasks[0].stoppedReason' --output text)
+
+          echo "::group::Migration logs"
+          aws logs get-log-events \
+            --log-group-name "$LOG_GROUP" \
+            --log-stream-name "ecs/migrate/${task_arn##*/}" \
+            --start-from-head --query 'events[].message' --output json \
+            | jq -r '.[]' || true
+          echo "::endgroup::"
+
+          if [ "$exit_code" != "0" ]; then
+            echo "::error::Migrations failed (exit code: ${exit_code}, reason: ${stopped_reason})."
+            exit 1
+          fi
+
+      - name: Deploy services
+        env:
+          API_TASK_DEFINITION: ${{ steps.task-definitions.outputs.api }}
+          WORKER_TASK_DEFINITION: ${{ steps.task-definitions.outputs.worker }}
+        run: |
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_API_SERVICE" \
+            --task-definition "$API_TASK_DEFINITION" > /dev/null
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_WORKER_SERVICE" \
+            --task-definition "$WORKER_TASK_DEFINITION" > /dev/null
+
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_API_SERVICE" "$ECS_WORKER_SERVICE"
+
+          # A circuit-breaker rollback also ends in a stable service, so confirm the new revision won.
+          verify() {
+            local service="$1" expected="$2" actual state
+            read -r actual state < <(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$service" \
+              --query "services[0].deployments[?status=='PRIMARY'] | [0].[taskDefinition, rolloutState]" --output text)
+            if [ "$actual" != "$expected" ] || [ "$state" != "COMPLETED" ]; then
+              echo "::error::${service} did not roll out ${expected} (primary: ${actual}, state: ${state})."
+              return 1
+            fi
+          }
+          verify "$ECS_API_SERVICE" "$API_TASK_DEFINITION"
+          verify "$ECS_WORKER_SERVICE" "$WORKER_TASK_DEFINITION"
+
+      - name: Tag image as latest
+        run: |
+          image=$(aws ecr batch-get-image --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" \
+            --accepted-media-types application/vnd.docker.distribution.manifest.v2+json application/vnd.oci.image.manifest.v1+json \
+            --query 'images[0]' --output json)
+          digest=$(jq -r '.imageId.imageDigest' <<< "$image")
+          current=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag=latest \
+            --query 'imageDetails[0].imageDigest' --output text 2> /dev/null || true)
+
+          if [ "$digest" = "$current" ]; then
+            echo "latest already points to ${IMAGE_TAG}."
+            exit 0
+          fi
+
+          aws ecr put-image --repository-name "$ECR_REPOSITORY" --image-tag latest \
+            --image-manifest "$(jq -r '.imageManifest' <<< "$image")" \
+            --image-manifest-media-type "$(jq -r '.imageManifestMediaType' <<< "$image")" > /dev/null
+
+      - name: Summary
+        if: always()
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+          API_TASK_DEFINITION: ${{ steps.task-definitions.outputs.api }}
+          WORKER_TASK_DEFINITION: ${{ steps.task-definitions.outputs.worker }}
+          MIGRATE_TASK_DEFINITION: ${{ steps.task-definitions.outputs.migrate }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "### Deploy ${JOB_STATUS}"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`${IMAGE:-n/a}\` |"
+            echo "| API | \`${API_TASK_DEFINITION:-n/a}\` |"
+            echo "| Worker | \`${WORKER_TASK_DEFINITION:-n/a}\` |"
+            echo "| Migrations | \`${MIGRATE_TASK_DEFINITION:-n/a}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,10 @@
+# Copy to backend.tf and set the bucket created during bootstrap (see README.md).
+terraform {
+  backend "s3" {
+    bucket       = "callsign-terraform-state-123456789012"
+    key          = "production/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
