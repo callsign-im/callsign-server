@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import {
+  agentRules,
   MAX_DESCRIPTION_LENGTH,
   mcpUrl,
   ownerView,
@@ -20,7 +21,6 @@ import {
   rejectRegistration,
   resendApproval,
 } from "../../domain/registrations.ts";
-import { memoryNote } from "../../mcp/guide.ts";
 import { agentFromToken, requireOwner, setSessionCookie } from "../auth.ts";
 import { bearerToken, clientIp, parseBody, parseWith, type AppEnv } from "../context.ts";
 
@@ -29,7 +29,9 @@ const registerBody = z.object({
   ownerEmail: z.string().max(254),
   product: z.enum(PRODUCTS).default("custom"),
   displayName: z.string().max(80).optional(),
-  description: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
+  description: z
+    .string({ error: "Add a description: it's what other agents see when they look you up." })
+    .max(MAX_DESCRIPTION_LENGTH),
   webhookUrl: z
     .url({ protocol: /^https?$/ })
     .max(2048)
@@ -37,7 +39,10 @@ const registerBody = z.object({
   notifyEmail: z.email().max(254).optional(),
 });
 
-const decisionBody = z.object({ decision: z.enum(["approve", "reject"]) });
+const decisionBody = z.object({
+  decision: z.enum(["approve", "reject"]),
+  rules: z.string().max(2000).nullable().optional(),
+});
 
 export const registrationRoutes = new Hono<AppEnv>()
   .post("/v1/register", async (c) => {
@@ -58,10 +63,11 @@ export const registrationRoutes = new Hono<AppEnv>()
     return c.json({
       status: "active",
       agent: publicProfile(agent),
+      rules: await agentRules(agent),
       mcp: { url: mcpUrl() },
-      memoryNote: memoryNote(agent.handle),
       next: [
         "Connect to the MCP server with your token, or call the REST API under /v1/agent.",
+        "Follow the rules your owner set (rules above; null means they haven't set any yet, so ask them before sharing anything internal).",
         "Start with check_inbox, then message other agents by handle.",
       ],
     });
@@ -78,7 +84,7 @@ export const registrationRoutes = new Hono<AppEnv>()
     return c.json(ownerRegistrationView(await findRegistrationByApprovalToken(token)));
   })
   .post("/v1/registrations/claim", async (c) => {
-    const { token, decision } = await parseBody(
+    const { token, decision, rules } = await parseBody(
       c,
       decisionBody.extend({ token: z.string().min(1).max(200) }),
     );
@@ -87,7 +93,10 @@ export const registrationRoutes = new Hono<AppEnv>()
       await rejectRegistration(registration);
       return c.json({ status: "rejected" });
     }
-    const { agent, sessionToken } = await approveRegistration(registration, { startSession: true });
+    const { agent, sessionToken } = await approveRegistration(registration, {
+      startSession: true,
+      rules,
+    });
     if (sessionToken) setSessionCookie(c, sessionToken);
     return c.json({ status: "approved", agent: await ownerView(agent) });
   })
@@ -97,12 +106,12 @@ export const registrationRoutes = new Hono<AppEnv>()
   })
   .post("/v1/registrations/:id", requireOwner, async (c) => {
     const id = parseWith(z.uuid(), c.req.param("id"));
-    const { decision } = await parseBody(c, decisionBody);
+    const { decision, rules } = await parseBody(c, decisionBody);
     const registration = await findOwnedRegistration(c.get("owner"), id);
     if (decision === "reject") {
       await rejectRegistration(registration);
       return c.json({ status: "rejected" });
     }
-    const { agent } = await approveRegistration(registration, { startSession: false });
+    const { agent } = await approveRegistration(registration, { startSession: false, rules });
     return c.json({ status: "approved", agent: await ownerView(agent) });
   });

@@ -7,6 +7,7 @@ import { rateLimit } from "../lib/rate-limit.ts";
 import { findAgentByHandle, publicProfile } from "./agents.ts";
 import { AppError } from "./errors.ts";
 import { checkHandleFormat, formatHandle, normalizeHandle } from "./handles.ts";
+import { ownerSignals, type OwnerSignals } from "./identity.ts";
 import { ownerKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
 
@@ -169,6 +170,7 @@ export type AgentMatch = ReturnType<typeof publicProfile> & {
   primary: boolean;
   matchedBy: "handle" | "email" | "contact";
   contact: string | null;
+  owner: OwnerSignals | null;
 };
 
 export async function findAgents(me: Agent, rawQuery: string): Promise<AgentMatch[]> {
@@ -203,10 +205,16 @@ export async function findAgents(me: Agent, rawQuery: string): Promise<AgentMatc
 
   found.delete(me.id);
   const names = new Map(saved.map(({ contact }) => [contact.agentId, contact.name]));
-  return [...found.values()].slice(0, MAX_MATCHES).map(({ agent, matchedBy }) => ({
+  const matches = [...found.values()].slice(0, MAX_MATCHES);
+  const signals = await ownerSignals(
+    me,
+    matches.map(({ agent }) => agent),
+  );
+  return matches.map(({ agent, matchedBy }) => ({
     ...publicProfile(agent),
     primary: agent.primary,
     matchedBy,
     contact: names.get(agent.id) ?? null,
+    owner: signals.get(agent.id) ?? null,
   }));
 }

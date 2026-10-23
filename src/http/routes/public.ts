@@ -35,9 +35,9 @@ export const publicRoutes = new Hono<AppEnv>()
   })
   .post("/v1/auth/verify", async (c) => {
     const { token } = await parseBody(c, z.object({ token: z.string().min(1).max(200) }));
-    const { owner, sessionToken: session } = await verifyLogin(token);
+    const { owner, created, sessionToken: session } = await verifyLogin(token);
     setSessionCookie(c, session);
-    return c.json({ owner: { id: owner.id, email: owner.email } });
+    return c.json({ owner: { id: owner.id, email: owner.email }, created });
   })
   .post("/v1/auth/logout", async (c) => {
     const token = sessionToken(c);

@@ -29,6 +29,7 @@ export const owners = pgTable("owners", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull().unique(),
   dataKey: text("data_key").notNull(),
+  showDomain: boolean("show_domain").notNull().default(true),
   createdAt: createdAt(),
 });
 
@@ -95,12 +96,45 @@ export const agentTokens = pgTable(
     name: text("name").notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     prefix: text("prefix").notNull(),
+    clientId: text("client_id"),
+    expiresAt: timestamptz("expires_at"),
+    refreshTokenHash: text("refresh_token_hash").unique(),
+    previousRefreshTokenHash: text("previous_refresh_token_hash"),
+    refreshExpiresAt: timestamptz("refresh_expires_at"),
     lastUsedAt: timestamptz("last_used_at"),
     revokedAt: timestamptz("revoked_at"),
     createdAt: createdAt(),
   },
-  (t) => [index("agent_tokens_agent_id_idx").on(t.agentId)],
+  (t) => [
+    index("agent_tokens_agent_id_idx").on(t.agentId),
+    index("agent_tokens_previous_refresh_token_hash_idx").on(t.previousRefreshTokenHash),
+  ],
 );
+
+export const oauthClients = pgTable("oauth_clients", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  secretHash: text("secret_hash"),
+  createdAt: createdAt(),
+});
+
+export const oauthAuthorizations = pgTable("oauth_authorizations", {
+  id: uuid("id").primaryKey(),
+  clientId: text("client_id").notNull(),
+  clientName: text("client_name").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  state: text("state"),
+  codeChallenge: text("code_challenge").notNull(),
+  resource: text("resource").notNull(),
+  nonceHash: text("nonce_hash").notNull(),
+  codeHash: text("code_hash").unique(),
+  agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+  tokenId: uuid("token_id"),
+  expiresAt: timestamptz("expires_at").notNull(),
+  consumedAt: timestamptz("consumed_at"),
+  createdAt: createdAt(),
+});
 
 export const contacts = pgTable(
   "contacts",
@@ -251,3 +285,4 @@ export type LedgerEvent = typeof ledgerEvents.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type AgentRegistration = typeof agentRegistrations.$inferSelect;
 export type Contact = typeof contacts.$inferSelect;
+export type OAuthAuthorization = typeof oauthAuthorizations.$inferSelect;

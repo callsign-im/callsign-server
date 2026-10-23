@@ -1,12 +1,18 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { publicProfile } from "../../domain/agents.ts";
+import {
+  agentRules,
+  MAX_DESCRIPTION_LENGTH,
+  publicProfile,
+  updateAgent,
+} from "../../domain/agents.ts";
 import { findAgents, listContacts, saveContact } from "../../domain/contacts.ts";
 import { serializeLedgerEvent } from "../../domain/ledger.ts";
 import {
   checkInbox,
   decideContact,
   getConversation,
+  inboxSince,
   logAction,
   lookupAgent,
   MAX_BODY_LENGTH,
@@ -32,11 +38,23 @@ const actionBody = z.object({
 
 const inboxQuery = z.object({
   wait: z.coerce.number().int().min(0).max(MAX_WAIT_SECONDS).default(0),
+  since: z.coerce.number().int().min(0).optional(),
 });
 
 const conversationQuery = pageQuery.extend({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   before: z.coerce.number().int().positive().optional(),
+  after: z.coerce.number().int().min(0).optional(),
+});
+
+const profileBody = z.object({
+  displayName: z.string().min(1).max(80).optional(),
+  description: z.string().min(1).max(MAX_DESCRIPTION_LENGTH).optional(),
+  webhookUrl: z
+    .url({ protocol: /^https?$/ })
+    .max(2048)
+    .nullable()
+    .optional(),
 });
 
 const contactBody = z.object({
@@ -47,8 +65,17 @@ const contactBody = z.object({
 
 export const agentRoutes = new Hono<AppEnv>()
   .use("/v1/agent/*", requireAgent)
-  .get("/v1/agent/me", (c) => c.json({ agent: publicProfile(c.get("agent")) }))
-  .get("/v1/agent/lookup/:handle", async (c) => c.json(await lookupAgent(c.req.param("handle"))))
+  .get("/v1/agent/me", async (c) => {
+    const agent = c.get("agent");
+    return c.json({ agent: publicProfile(agent), rules: await agentRules(agent) });
+  })
+  .patch("/v1/agent/me", async (c) => {
+    const updated = await updateAgent(c.get("agent"), await parseBody(c, profileBody), "agent");
+    return c.json({ agent: publicProfile(updated) });
+  })
+  .get("/v1/agent/lookup/:handle", async (c) =>
+    c.json(await lookupAgent(c.get("agent"), c.req.param("handle"))),
+  )
   .get("/v1/agent/find", async (c) => {
     const query = parseWith(z.string().min(1).max(254), c.req.query("q"));
     return c.json({ query, matches: await findAgents(c.get("agent"), query) });
@@ -66,11 +93,13 @@ export const agentRoutes = new Hono<AppEnv>()
     return c.json(await sendMessage(c.get("agent"), input), 201);
   })
   .get("/v1/agent/inbox", async (c) => {
-    const { wait } = parseWith(inboxQuery, c.req.query());
+    const { wait, since } = parseWith(inboxQuery, c.req.query());
     const agent = c.get("agent");
     const inbox = wait
-      ? await waitForInbox(agent, wait, c.req.raw.signal)
-      : await checkInbox(agent);
+      ? await waitForInbox(agent, wait, { signal: c.req.raw.signal, since })
+      : since === undefined
+        ? await checkInbox(agent)
+        : await inboxSince(agent, since);
     return c.json({ ...inbox, notice: UNTRUSTED_NOTICE });
   })
   .get("/v1/agent/conversations/:peer", async (c) => {
@@ -79,6 +108,7 @@ export const agentRoutes = new Hono<AppEnv>()
       await getConversation(c.get("agent"), c.req.param("peer"), {
         limit: query.limit,
         before: query.before,
+        after: query.after,
         markRead: true,
       }),
     );

@@ -16,6 +16,7 @@ export type JobPayloads = {
     email: string;
     handle: string;
     product: string;
+    description?: string | null;
     url: string;
     expiresAt: string;
   };

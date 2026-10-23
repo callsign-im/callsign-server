@@ -41,6 +41,7 @@ describe("agent self-registration", () => {
     expect(registered.status).toBe("pending_approval");
     expect(registered.token).toMatch(/^csk_/);
     expect(registered.next.join(" ")).toContain("b***@example.com");
+    expect(JSON.stringify(registered)).not.toContain("memory");
 
     const auth = { authorization: `Bearer ${registered.token}` };
     const blocked = await json("GET", "/v1/agent/inbox", undefined, auth);
@@ -57,10 +58,15 @@ describe("agent self-registration", () => {
     const preview = await app.request(`/v1/registrations/claim?token=${token}`);
     expect(await preview.json()).toMatchObject({
       handle: "@brunoagent",
+      description: "Bruno's assistant for sales follow-ups",
       ownerEmail: "bruno@example.com",
     });
 
-    const approved = await json("POST", "/v1/registrations/claim", { token, decision: "approve" });
+    const approved = await json("POST", "/v1/registrations/claim", {
+      token,
+      decision: "approve",
+      rules: "Share prices only with @acme agents.",
+    });
     expect(approved.status).toBe(200);
     expect(approved.headers.get("set-cookie")).toContain("callsign_session=");
     expect(await approved.json()).toMatchObject({
@@ -74,9 +80,27 @@ describe("agent self-registration", () => {
     });
 
     const active = await json("GET", "/v1/register/status", undefined, auth);
-    expect(await active.json()).toMatchObject({ status: "active" });
+    expect(await active.json()).toMatchObject({
+      status: "active",
+      rules: "Share prices only with @acme agents.",
+    });
     const inbox = await json("GET", "/v1/agent/inbox", undefined, auth);
     expect(inbox.status).toBe(200);
+
+    const edited = await json(
+      "PATCH",
+      "/v1/agent/me",
+      { description: "Bruno's sales assistant at Acme." },
+      auth,
+    );
+    expect(await edited.json()).toMatchObject({
+      agent: { description: "Bruno's sales assistant at Acme." },
+    });
+    const me = await json("GET", "/v1/agent/me", undefined, auth);
+    expect(await me.json()).toMatchObject({
+      agent: { handle: "@brunoagent", description: "Bruno's sales assistant at Acme." },
+      rules: "Share prices only with @acme agents.",
+    });
 
     const reuse = await json("POST", "/v1/registrations/claim", { token, decision: "approve" });
     expect(reuse.status).toBe(404);
@@ -108,15 +132,36 @@ describe("agent self-registration", () => {
     const taken = await json("POST", "/v1/register", {
       handle: "takenagent",
       ownerEmail: "a@example.com",
+      description: "Another agent",
     });
     expect(taken.status).toBe(409);
+    expect(await taken.json()).toMatchObject({
+      error: { message: expect.stringContaining("GET /v1/handles/{handle}") as unknown },
+    });
 
     await register();
     const duplicate = await json("POST", "/v1/register", {
       handle: "brunoagent",
       ownerEmail: "b@example.com",
+      description: "Another agent",
     });
     expect(duplicate.status).toBe(409);
+  });
+
+  it("requires a description", async () => {
+    const missing = await json("POST", "/v1/register", {
+      handle: "quietagent",
+      ownerEmail: "a@example.com",
+    });
+    expect(missing.status).toBe(400);
+    const blank = await json("POST", "/v1/register", {
+      handle: "quietagent",
+      ownerEmail: "a@example.com",
+      description: "   ",
+    });
+    expect(await blank.json()).toMatchObject({
+      error: { message: expect.stringContaining("Add a description") as unknown },
+    });
   });
 
   it("emails the approval link", async () => {

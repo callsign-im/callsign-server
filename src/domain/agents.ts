@@ -137,6 +137,7 @@ export async function createAgent(
     displayName?: string | undefined;
     description?: string | null | undefined;
     product: Product;
+    rules?: string | null | undefined;
   },
 ): Promise<Agent> {
   const handle = normalizeHandle(input.handle);
@@ -166,6 +167,7 @@ export async function createAgent(
           product: input.product,
           primary,
           webhookSecret,
+          rules: await sealAgentRules(owner.id, id, input.rules, tx),
         })
         .returning();
       if (!agent) throw new Error("agent insert returned no row");
@@ -195,6 +197,17 @@ export async function newWebhookSecret(
   return key.seal(randomToken("whsec"), secretContext(agentId));
 }
 
+export async function sealAgentRules(
+  ownerId: string,
+  agentId: string,
+  rules: string | null | undefined,
+  executor: Executor = db,
+): Promise<Sealed | null> {
+  const text = rules?.trim();
+  if (!text) return null;
+  return (await ownerKey(ownerId, executor)).seal(text, rulesContext(agentId));
+}
+
 export async function agentRules(agent: Agent): Promise<string | null> {
   return (await ownerKey(agent.ownerId)).open(agent.rules, rulesContext(agent.id));
 }
@@ -213,7 +226,11 @@ export type AgentSettings = {
   rules?: string | null | undefined;
 };
 
-export async function updateAgent(agent: Agent, settings: AgentSettings): Promise<Agent> {
+export async function updateAgent(
+  agent: Agent,
+  settings: AgentSettings,
+  actor: "owner" | "agent" = "owner",
+): Promise<Agent> {
   const key = await ownerKey(agent.ownerId);
   const patch = {
     ...(settings.displayName !== undefined && { displayName: settings.displayName.trim() }),
@@ -243,7 +260,7 @@ export async function updateAgent(agent: Agent, settings: AgentSettings): Promis
     if (!updated) throw new AppError("not_found", "Agent not found.");
     const recorded = await appendLedgerEvent(tx, agent, {
       type: "agent.updated",
-      actor: "owner",
+      actor,
       data: { fields },
     });
     return { updated, recorded };
@@ -284,11 +301,21 @@ export async function listAgentTokens(agentId: string): Promise<AgentToken[]> {
   return db
     .select()
     .from(agentTokens)
-    .where(and(eq(agentTokens.agentId, agentId), isNull(agentTokens.revokedAt)))
+    .where(
+      and(
+        eq(agentTokens.agentId, agentId),
+        isNull(agentTokens.revokedAt),
+        or(isNull(agentTokens.refreshExpiresAt), gt(agentTokens.refreshExpiresAt, new Date())),
+      ),
+    )
     .orderBy(desc(agentTokens.createdAt));
 }
 
-export async function revokeAgentToken(agent: Agent, tokenId: string): Promise<void> {
+export async function revokeAgentToken(
+  agent: Agent,
+  tokenId: string,
+  actor: "owner" | "agent" = "owner",
+): Promise<void> {
   const recorded = await db.transaction(async (tx) => {
     const [revoked] = await tx
       .update(agentTokens)
@@ -304,7 +331,7 @@ export async function revokeAgentToken(agent: Agent, tokenId: string): Promise<v
     if (!revoked) throw new AppError("not_found", "Token not found.");
     return appendLedgerEvent(tx, agent, {
       type: "token.revoked",
-      actor: "owner",
+      actor,
       data: { tokenId: revoked.id, name: revoked.name, prefix: revoked.prefix },
     });
   });
@@ -317,7 +344,13 @@ export async function authenticateAgentToken(token: string): Promise<Agent | nul
     .select({ agent: agents, tokenId: agentTokens.id, lastUsedAt: agentTokens.lastUsedAt })
     .from(agentTokens)
     .innerJoin(agents, eq(agents.id, agentTokens.agentId))
-    .where(and(eq(agentTokens.tokenHash, sha256(token)), isNull(agentTokens.revokedAt)));
+    .where(
+      and(
+        eq(agentTokens.tokenHash, sha256(token)),
+        isNull(agentTokens.revokedAt),
+        or(isNull(agentTokens.expiresAt), gt(agentTokens.expiresAt, new Date())),
+      ),
+    );
   if (!row) return null;
 
   const staleBefore = new Date(Date.now() - TOUCH_INTERVAL_MS);
@@ -371,6 +404,7 @@ export function tokenView(token: AgentToken) {
   return {
     id: token.id,
     name: token.name,
+    kind: token.clientId ? ("oauth" as const) : ("token" as const),
     prefix: token.prefix,
     createdAt: token.createdAt.toISOString(),
     lastUsedAt: token.lastUsedAt?.toISOString() ?? null,

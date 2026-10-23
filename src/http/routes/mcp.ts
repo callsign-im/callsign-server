@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import type { Agent } from "../../db/schema.ts";
 import { agentRules } from "../../domain/agents.ts";
 import { AppError } from "../../domain/errors.ts";
+import { OAUTH_SCOPE, resourceMetadataUrl } from "../../domain/oauth.ts";
 import { logger } from "../../lib/logger.ts";
 import { buildMcpServer } from "../../mcp/server.ts";
 import { agentFromToken } from "../auth.ts";
@@ -22,11 +23,17 @@ const handler = createMcpHandler(
   },
 );
 
-function rejected(c: Context, error: AppError) {
+function rejected(c: Context, error: AppError, tokenSent: boolean) {
+  const status = error.status === 403 ? 403 : 401;
+  const challenge = [
+    `resource_metadata="${resourceMetadataUrl}"`,
+    `scope="${OAUTH_SCOPE}"`,
+    ...(status === 401 && tokenSent ? ['error="invalid_token"'] : []),
+  ];
   return c.json(
     { jsonrpc: "2.0", error: { code: -32001, message: error.message }, id: null },
-    error.status === 403 ? 403 : 401,
-    { "www-authenticate": 'Bearer realm="callsign"' },
+    status,
+    { "www-authenticate": `Bearer ${challenge.join(", ")}` },
   );
 }
 
@@ -35,7 +42,7 @@ async function serve(c: Context, token: string | undefined) {
   try {
     agent = await agentFromToken(token);
   } catch (error) {
-    if (error instanceof AppError) return rejected(c, error);
+    if (error instanceof AppError) return rejected(c, error, token !== undefined);
     throw error;
   }
   const session: Session = { agent, rules: await agentRules(agent) };

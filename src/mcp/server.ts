@@ -1,7 +1,12 @@
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Agent } from "../db/schema.ts";
-import { findAgentByHandle, publicProfile } from "../domain/agents.ts";
+import {
+  findAgentByHandle,
+  MAX_DESCRIPTION_LENGTH,
+  publicProfile,
+  updateAgent,
+} from "../domain/agents.ts";
 import {
   contactsByAgent,
   findAgents,
@@ -10,6 +15,7 @@ import {
   type AgentMatch,
 } from "../domain/contacts.ts";
 import { AppError } from "../domain/errors.ts";
+import type { OwnerSignals } from "../domain/identity.ts";
 import { serializeLedgerEvent } from "../domain/ledger.ts";
 import {
   checkInbox,
@@ -22,6 +28,7 @@ import {
   sendMessage,
   UNTRUSTED_NOTICE,
   waitForInbox,
+  type Acceptance,
   type ContactContext,
   type Inbox,
   type MessageView,
@@ -29,7 +36,7 @@ import {
 } from "../domain/messaging.ts";
 import { logger } from "../lib/logger.ts";
 import { SERVER_NAME, VERSION } from "../version.ts";
-import { memoryNote, serverInstructions } from "./guide.ts";
+import { ownerRules, serverInstructions } from "./guide.ts";
 
 const handleField = (description: string) =>
   z.string().min(1).max(64).describe(`${description} Include the @, e.g. @mateorivasagent.`);
@@ -70,6 +77,48 @@ function formatMessages(list: MessageView[]): string {
     .join("\n");
 }
 
+function timeAgo(iso: string): string {
+  const minutes = Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  if (days < 60) return `${days} days ago`;
+  return `${Math.round(days / 30)} months ago`;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function describeOwner(profile: { createdAt: string; owner: OwnerSignals | null }): string {
+  const { owner } = profile;
+  if (!owner) return `agent created ${timeAgo(profile.createdAt)}`;
+  return [
+    owner.verifiedDomain
+      ? `owner verified at ${owner.verifiedDomain}`
+      : "owner's email domain not shown",
+    ...(owner.sameOrganization ? ["same organization as your owner"] : []),
+    `owner joined ${timeAgo(owner.since)}`,
+    `owner has ${plural(owner.agents, "agent")}`,
+    owner.mutualContacts ? plural(owner.mutualContacts, "mutual contact") : "no mutual contacts",
+    `agent created ${timeAgo(profile.createdAt)}`,
+  ].join(", ");
+}
+
+function describeAcceptance(handle: string, acceptance: Acceptance): string {
+  switch (acceptance) {
+    case "accepted":
+      return `You accepted ${handle}: you can message each other freely.`;
+    case "declined":
+      return `You declined ${handle}'s request. They can't message you anymore.`;
+    case "blocked":
+      return `You blocked ${handle}. They can't message you anymore.`;
+    case "pending":
+      return `${handle}'s request is still waiting for your decision.`;
+  }
+}
+
 function describeSender(
   profile: { handle: string; product: string },
   contact: ContactContext,
@@ -87,14 +136,12 @@ function contactRules(handle: string, contact: ContactContext): string[] {
 
 function describeInbox(inbox: Inbox): string {
   if (inbox.threads.length === 0) return "No new messages.";
-  const header = [
-    UNTRUSTED_NOTICE,
-    ...(inbox.rules ? [`Your owner's rules for every conversation: ${inbox.rules}`] : []),
-  ];
+  const header = [UNTRUSTED_NOTICE, ownerRules(inbox.rules)];
   const sections = inbox.threads.map((thread) => {
     const who = describeSender(thread.with, thread.contact, thread.sameOwner);
     const lines = [
       thread.kind === "request" ? `Message request from ${who}:` : `New messages from ${who}:`,
+      ...(thread.sameOwner ? [] : [`About ${thread.with.handle}: ${describeOwner(thread.with)}.`]),
       ...contactRules(thread.with.handle, thread.contact),
       formatMessages(thread.messages),
     ];
@@ -122,7 +169,8 @@ function describeMatches(query: string, matches: AgentMatch[]): string {
         `- ${m.handle}: ${m.displayName} (${m.product})`,
         m.primary ? ", primary agent" : "",
         m.contact ? `, saved as "${m.contact}" in your contacts` : "",
-        m.description ? `. Description: "${m.description}"` : "",
+        m.description ? `. Description: "${m.description}"` : ". No description",
+        `. ${describeOwner(m)}.`,
       ].join(""),
     ),
     matches.length > 1 && matches.every((m) => m.matchedBy === "email")
@@ -142,21 +190,57 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
     {
       title: "Who am I",
       description:
-        "Show your Callsign handle, your owner's rules and a note to keep in your memory. Call it the first time you use Callsign.",
+        "Show your Callsign handle, your profile and the rules your owner set for you. Call it the first time you use Callsign.",
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     () => {
       const profile = publicProfile(agent);
-      const note = memoryNote(agent.handle);
       return result(
         [
           `You are ${profile.handle} (${profile.displayName}), a ${profile.product} agent on Callsign.`,
-          ...(rules ? [`Your owner's rules for every conversation: ${rules}`] : []),
-          `If you have persistent memory, save this note: ${note}`,
+          profile.description
+            ? `Other agents see this description: "${profile.description}"`
+            : "Your profile has no description, so agents that look you up can't tell what you do. Ask your owner how to describe you, then set it with update_profile.",
+          ownerRules(rules),
         ].join("\n"),
-        { ...profile, rules, memoryNote: note },
+        { ...profile, rules },
       );
     },
+  );
+
+  server.registerTool(
+    "update_profile",
+    {
+      title: "Update your profile",
+      description:
+        "Change the display name or description other agents see when they look you up. Ask your owner before changing how you present yourself.",
+      inputSchema: z.object({
+        display_name: z.string().min(1).max(80).optional().describe("Your display name."),
+        description: z
+          .string()
+          .min(1)
+          .max(MAX_DESCRIPTION_LENGTH)
+          .optional()
+          .describe("One or two sentences on who you work for and what you handle."),
+      }),
+      annotations: { idempotentHint: true, openWorldHint: false },
+    },
+    ({ display_name, description }) =>
+      run("update_profile", async () => {
+        if (display_name === undefined && description === undefined) {
+          throw new AppError("invalid_input", "Pass a display_name, a description or both.");
+        }
+        const updated = await updateAgent(
+          agent,
+          { displayName: display_name, description },
+          "agent",
+        );
+        const profile = publicProfile(updated);
+        return result(
+          `Updated ${profile.handle}: ${profile.displayName}${profile.description ? `. "${profile.description}"` : ""}`,
+          profile,
+        );
+      }),
   );
 
   server.registerTool(
@@ -296,7 +380,7 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
     },
     ({ seconds }, ctx) =>
       run("wait_for_reply", async () => {
-        const inbox = await waitForInbox(agent, seconds, ctx.mcpReq.signal);
+        const inbox = await waitForInbox(agent, seconds, { signal: ctx.mcpReq.signal });
         const text =
           inbox.threads.length === 0
             ? "No new messages arrived while waiting."
@@ -326,6 +410,12 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
           .positive()
           .optional()
           .describe("Return messages older than this sequence number, for paging back."),
+        after_seq: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Return only messages newer than this sequence number."),
       }),
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
@@ -334,18 +424,32 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
         const conversation = await getConversation(agent, args.with, {
           limit: args.limit,
           before: args.before_seq,
+          after: args.after_seq,
           markRead: true,
         });
         const who = describeSender(conversation.with, conversation.contact, conversation.sameOwner);
+        const about = conversation.sameOwner
+          ? []
+          : [`About ${conversation.with.handle}: ${describeOwner(conversation.with)}.`];
         const text =
           conversation.messages.length === 0
-            ? `No messages with ${who} yet.`
+            ? [
+                args.after_seq === undefined
+                  ? `No messages with ${who} yet.`
+                  : `No new messages from ${who}.`,
+                ...about,
+              ].join("\n")
             : [
                 UNTRUSTED_NOTICE,
-                ...(conversation.rules
-                  ? [`Your owner's rules for every conversation: ${conversation.rules}`]
-                  : []),
+                ownerRules(conversation.rules),
                 ...contactRules(conversation.with.handle, conversation.contact),
+                ...about,
+                ...(conversation.myAcceptance === "pending"
+                  ? ["This is a message request you haven't accepted yet."]
+                  : []),
+                ...(conversation.theirAcceptance === "pending"
+                  ? [`${conversation.with.handle} hasn't accepted your request yet.`]
+                  : []),
                 "",
                 `Conversation with ${who}:`,
                 formatMessages(conversation.messages),
@@ -369,7 +473,7 @@ export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
     ({ from, decision }) =>
       run("respond_to_request", async () => {
         const outcome = await decideContact(agent, from, decision, "agent");
-        return result(`${outcome.with} is now ${outcome.status}.`, outcome);
+        return result(describeAcceptance(outcome.with, outcome.myAcceptance), outcome);
       }),
   );
 

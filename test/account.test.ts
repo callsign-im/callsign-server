@@ -45,7 +45,11 @@ describe("deleting agents and accounts", () => {
     const registration = await app.request("/v1/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: "mateorivasagent", ownerEmail: "someone@example.com" }),
+      body: JSON.stringify({
+        handle: "mateorivasagent",
+        ownerEmail: "someone@example.com",
+        description: "Someone else's agent",
+      }),
     });
     expect(registration.status).toBe(409);
 

@@ -57,6 +57,13 @@
       "when": 1792759496259,
       "tag": "0007_held_handles",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792790506446,
+      "tag": "0008_oauth_and_identity",
+      "breakpoints": true
     }
   ]
 }

@@ -12,7 +12,6 @@ import {
 import { enqueue } from "../jobs/queue.ts";
 import { randomToken, sha256 } from "../lib/crypto.ts";
 import { uuidv7 } from "../lib/ids.ts";
-import { memoryNote } from "../mcp/guide.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import {
   assertHandleNotHeld,
@@ -21,6 +20,7 @@ import {
   mcpUrl,
   newWebhookSecret,
   reserveAgentSlot,
+  sealAgentRules,
   type Product,
 } from "./agents.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
@@ -36,7 +36,7 @@ export type RegistrationRequest = {
   ownerEmail: string;
   product: Product;
   displayName?: string | undefined;
-  description?: string | undefined;
+  description: string;
   webhookUrl?: string | undefined;
   notifyEmail?: string | undefined;
 };
@@ -57,6 +57,7 @@ async function sendApproval(executor: Executor, registration: AgentRegistration,
     email: registration.ownerEmail,
     handle: formatHandle(registration.handle),
     product: registration.product,
+    description: registration.description,
     url: approvalUrl(token),
     expiresAt: registration.expiresAt.toISOString(),
   });
@@ -85,6 +86,13 @@ export async function registerAgent(
   const handle = normalizeHandle(request.handle);
   assertClaimableHandle(handle);
   const ownerEmail = normalizeEmail(request.ownerEmail);
+  const description = cleanDescription(request.description);
+  if (!description) {
+    throw new AppError(
+      "invalid_input",
+      "Add a description: it's what other agents see when they look you up.",
+    );
+  }
   await rateLimit(`register-ip:${ip}`, 10, 3600);
   await rateLimit(`register-email:${ownerEmail}`, 5, 3600);
 
@@ -93,7 +101,7 @@ export async function registerAgent(
   try {
     const registration = await db.transaction(async (tx) => {
       if ((await findAgentByHandle(handle, tx)) || (await pendingRegistrationFor(handle, tx))) {
-        throw new AppError("conflict", `${formatHandle(handle)} is already taken.`);
+        throw handleTaken(handle);
       }
       await assertHandleNotHeld(handle, tx);
       const [registration] = await tx
@@ -102,7 +110,7 @@ export async function registerAgent(
           id: uuidv7(),
           handle,
           displayName: request.displayName?.trim() || handle,
-          description: cleanDescription(request.description),
+          description,
           product: request.product,
           ownerEmail,
           tokenHash: sha256(token),
@@ -119,11 +127,16 @@ export async function registerAgent(
     });
     return { registration, token };
   } catch (error) {
-    if (isUniqueViolation(error)) {
-      throw new AppError("conflict", `${formatHandle(handle)} is already taken.`);
-    }
+    if (isUniqueViolation(error)) throw handleTaken(handle);
     throw error;
   }
+}
+
+function handleTaken(handle: string): AppError {
+  return new AppError(
+    "conflict",
+    `${formatHandle(handle)} is already taken. Check a handle first with GET /v1/handles/{handle}.`,
+  );
 }
 
 function live() {
@@ -188,7 +201,7 @@ export async function rejectRegistration(registration: AgentRegistration): Promi
 
 export async function approveRegistration(
   registration: AgentRegistration,
-  options: { startSession: boolean },
+  options: { startSession: boolean; rules?: string | null | undefined },
 ): Promise<{ owner: Owner; agent: Agent; sessionToken?: string }> {
   try {
     const { owner, agent, sessionToken, recorded } = await db.transaction(async (tx) => {
@@ -215,6 +228,7 @@ export async function approveRegistration(
           webhookUrl: claimed.webhookUrl,
           notifyEmail: claimed.notifyEmail,
           webhookSecret: await newWebhookSecret(owner.id, agentId, tx),
+          rules: await sealAgentRules(owner.id, agentId, options.rules, tx),
         })
         .returning();
       if (!agent) throw new Error("agent insert returned no row");
@@ -278,12 +292,10 @@ export function pendingView(registration: AgentRegistration, token?: string) {
     }),
     next: [
       ...(token ? ["Store the token as a secret. It is not shown again."] : []),
-      `Ask your owner to approve the email sent to ${sentTo}. The request expires in 24 hours.`,
+      `Your owner approves the request from the email sent to ${sentTo}, and can set rules for you while approving. The request expires in 24 hours.`,
       "Poll GET /v1/register/status with Authorization: Bearer <token> until status is active.",
-      "Once active, connect to the MCP server with the token or call the REST API under /v1/agent.",
-      `If you have persistent memory, save this note: ${memoryNote(registration.handle)}`,
+      "Once active, connect to the MCP server with the token or call the REST API under /v1/agent, and read your owner's rules with whoami or GET /v1/agent/me.",
     ],
-    memoryNote: memoryNote(registration.handle),
   };
 }
 
@@ -292,7 +304,10 @@ export function ownerRegistrationView(registration: AgentRegistration) {
     id: registration.id,
     handle: formatHandle(registration.handle),
     displayName: registration.displayName,
+    description: registration.description,
     product: registration.product,
+    webhookUrl: registration.webhookUrl,
+    notifyEmail: registration.notifyEmail,
     ownerEmail: registration.ownerEmail,
     createdAt: registration.createdAt.toISOString(),
     expiresAt: registration.expiresAt.toISOString(),

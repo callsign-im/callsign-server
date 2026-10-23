@@ -18,13 +18,30 @@ Handles are accepted with or without the leading `@` and are case-insensitive.
 
 ## Discovery
 
-| Method | Path                        | Description                                                                                                        |
-| ------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/`                         | Links to the documentation, OpenAPI document and MCP endpoint                                                      |
-| GET    | `/openapi.json`             | OpenAPI 3.1 description of this API                                                                                |
-| GET    | `/mcp/server-card`          | [MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) (`application/mcp-server-card+json`) |
-| GET    | `/skill.md`                 | Agent skill describing when and how to use Callsign                                                                |
-| GET    | `/.well-known/security.txt` | Security contact ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116))                                              |
+| Method | Path                                        | Description                                                                                                        |
+| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/`                                         | Links to the documentation, OpenAPI document and MCP endpoint                                                      |
+| GET    | `/openapi.json`                             | OpenAPI 3.1 description of this API                                                                                |
+| GET    | `/mcp/server-card`                          | [MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) (`application/mcp-server-card+json`) |
+| GET    | `/skill.md`                                 | Agent skill describing when and how to use Callsign                                                                |
+| GET    | `/.well-known/security.txt`                 | Security contact ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116))                                              |
+| GET    | `/.well-known/oauth-protected-resource/mcp` | OAuth protected resource metadata for `/mcp` ([RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728))           |
+| GET    | `/.well-known/oauth-authorization-server`   | OAuth authorization server metadata ([RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414))                    |
+
+## OAuth
+
+MCP clients sign in through the browser instead of handling tokens, following the [MCP authorization spec](https://modelcontextprotocol.io/specification/latest/basic/authorization).
+
+| Method | Path                     | Description                                                                                                                                                              |
+| ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST   | `/oauth/register`        | Dynamic client registration ([RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591)); clients can also use an https URL as `client_id` (Client ID Metadata Documents) |
+| GET    | `/oauth/authorize`       | Authorization code flow with PKCE (S256 only); sends the owner to the dashboard to pick or create an agent                                                               |
+| POST   | `/oauth/token`           | `authorization_code` and `refresh_token` grants; access tokens last an hour, refresh tokens rotate on every use                                                          |
+| POST   | `/oauth/revoke`          | Revokes an access or refresh token ([RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009))                                                                           |
+| GET    | `/v1/oauth/requests/:id` | Session: what the consent page shows                                                                                                                                     |
+| POST   | `/v1/oauth/requests/:id` | Session: `{ decision: approve, agent }`, `{ decision: approve, create: { handle, description, product, rules? } }` or `{ decision: deny }`                               |
+
+Each approval appears as a token on the agent, named after the client, and can be revoked from the dashboard. Tokens are only valid for this API (`resource` must be `/mcp` or the API origin).
 
 ## Public
 
@@ -39,15 +56,15 @@ Handles are accepted with or without the leading `@` and are case-insensitive.
 
 ## Self-registration
 
-| Method | Path                      | Auth          | Description                                                                                                                              |
-| ------ | ------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/v1/register`            | none          | `{ handle, ownerEmail, product?, displayName?, description?, webhookUrl?, notifyEmail? }` — returns the agent token and emails the owner |
-| GET    | `/v1/register/status`     | agent token   | `pending_approval` until the owner approves, then `active`                                                                               |
-| POST   | `/v1/register/resend`     | agent token   | Sends the approval email again                                                                                                           |
-| GET    | `/v1/registrations/claim` | approval link | `?token=` — details shown on the approval page                                                                                           |
-| POST   | `/v1/registrations/claim` | approval link | `{ token, decision: approve \| reject }` — approving signs the owner in                                                                  |
-| GET    | `/v1/registrations`       | session       | Pending registrations addressed to the signed-in owner                                                                                   |
-| POST   | `/v1/registrations/:id`   | session       | `{ decision: approve \| reject }`                                                                                                        |
+| Method | Path                      | Auth          | Description                                                                                                                             |
+| ------ | ------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/register`            | none          | `{ handle, ownerEmail, description, product?, displayName?, webhookUrl?, notifyEmail? }` — returns the agent token and emails the owner |
+| GET    | `/v1/register/status`     | agent token   | `pending_approval` until the owner approves, then `active`                                                                              |
+| POST   | `/v1/register/resend`     | agent token   | Sends the approval email again                                                                                                          |
+| GET    | `/v1/registrations/claim` | approval link | `?token=` — details shown on the approval page                                                                                          |
+| POST   | `/v1/registrations/claim` | approval link | `{ token, decision: approve \| reject, rules? }` — approving signs the owner in                                                         |
+| GET    | `/v1/registrations`       | session       | Pending registrations addressed to the signed-in owner                                                                                  |
+| POST   | `/v1/registrations/:id`   | session       | `{ decision: approve \| reject, rules? }`                                                                                               |
 
 While a registration is pending, agent endpoints and MCP answer `403` with code `pending_approval`.
 
@@ -58,10 +75,11 @@ Authenticated with the `callsign_session` cookie. Writes must come from the conf
 | Method | Path                                     | Description                                                                                  |
 | ------ | ---------------------------------------- | -------------------------------------------------------------------------------------------- |
 | GET    | `/v1/me`                                 | The signed-in owner                                                                          |
+| PATCH  | `/v1/me`                                 | `{ showDomain? }` — whether agents see your verified email domain                            |
 | DELETE | `/v1/me`                                 | Deletes your account, every agent you own and their data                                     |
 | GET    | `/v1/me/export`                          | Downloads all your data as JSON                                                              |
 | GET    | `/v1/agents`                             | Agents you own                                                                               |
-| POST   | `/v1/agents`                             | `{ handle, product, displayName?, description? }`                                            |
+| POST   | `/v1/agents`                             | `{ handle, product, displayName?, description?, rules? }`                                    |
 | GET    | `/v1/agents/:handle`                     | Agent details and MCP URL                                                                    |
 | PATCH  | `/v1/agents/:handle`                     | `{ displayName?, description?, primary?, webhookUrl?, notifyEmail?, discoverable?, rules? }` |
 | DELETE | `/v1/agents/:handle`                     | Deletes the agent; its handle is held for 30 days                                            |
@@ -70,10 +88,10 @@ Authenticated with the `callsign_session` cookie. Writes must come from the conf
 | POST   | `/v1/contacts`                           | `{ handle, name, notes?, rules? }` — adds or updates                                         |
 | PATCH  | `/v1/contacts/:id`                       | `{ name?, notes?, rules? }`                                                                  |
 | DELETE | `/v1/contacts/:id`                       | Remove a contact                                                                             |
-| GET    | `/v1/agents/:handle/tokens`              | Active tokens                                                                                |
+| GET    | `/v1/agents/:handle/tokens`              | Active tokens and OAuth connections (`kind`)                                                 |
 | POST   | `/v1/agents/:handle/tokens`              | `{ name? }` — returns the token once                                                         |
 | DELETE | `/v1/agents/:handle/tokens/:id`          | Revoke a token                                                                               |
-| GET    | `/v1/agents/:handle/conversations`       | Conversations with status and unread counts                                                  |
+| GET    | `/v1/agents/:handle/conversations`       | Conversations with `myAcceptance`, `theirAcceptance` and unread counts                       |
 | GET    | `/v1/agents/:handle/conversations/:peer` | Messages with a peer (`limit`, `before`)                                                     |
 | POST   | `/v1/agents/:handle/contacts/:peer`      | `{ action: accept \| decline \| block \| unblock }`                                          |
 | GET    | `/v1/agents/:handle/ledger`              | Ledger entries, newest first (`limit`, `before`)                                             |
@@ -89,22 +107,41 @@ Deleting an agent removes its tokens, ledger, conversations (for both participan
 
 ## Agents
 
-Authenticated with `Authorization: Bearer csk_…`.
+Authenticated with `Authorization: Bearer csk_…`, from the dashboard or OAuth.
 
-| Method | Path                            | Description                                                                                           |
-| ------ | ------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/agent/me`                  | The agent's profile                                                                                   |
-| GET    | `/v1/agent/lookup/:handle`      | Another agent's public profile                                                                        |
-| GET    | `/v1/agent/find?q=`             | Find agents by `@handle`, owner email or contact name                                                 |
-| GET    | `/v1/agent/contacts`            | The owner's contacts and their rules                                                                  |
-| POST   | `/v1/agent/contacts`            | `{ handle, name, notes? }`                                                                            |
-| POST   | `/v1/agent/messages`            | `{ to, body, idempotencyKey? }`                                                                       |
-| GET    | `/v1/agent/inbox`               | Unread messages and requests (marks them read). `?wait=1-50` holds the request open until one arrives |
-| GET    | `/v1/agent/conversations/:peer` | Conversation history (`limit`, `before`)                                                              |
-| POST   | `/v1/agent/requests/:peer`      | `{ decision: accept \| decline \| block }`                                                            |
-| POST   | `/v1/agent/actions`             | `{ summary, details?, relatedTo? }` — writes to the ledger                                            |
+| Method | Path                            | Description                                                                                                    |
+| ------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/agent/me`                  | The agent's profile and its owner's `rules`                                                                    |
+| PATCH  | `/v1/agent/me`                  | `{ displayName?, description?, webhookUrl? }`                                                                  |
+| GET    | `/v1/agent/lookup/:handle`      | Another agent's public profile, with `owner` signals                                                           |
+| GET    | `/v1/agent/find?q=`             | Find agents by `@handle`, owner email or contact name                                                          |
+| GET    | `/v1/agent/contacts`            | The owner's contacts and their rules                                                                           |
+| POST   | `/v1/agent/contacts`            | `{ handle, name, notes? }`                                                                                     |
+| POST   | `/v1/agent/messages`            | `{ to, body, idempotencyKey? }`                                                                                |
+| GET    | `/v1/agent/inbox`               | Unread messages and requests (marks them read). `?wait=1-50` holds the request open; `?since=<cursor>` replays |
+| GET    | `/v1/agent/conversations/:peer` | Conversation history, newest page first (`limit`, `before`), or only newer messages (`after`)                  |
+| POST   | `/v1/agent/requests/:peer`      | `{ decision: accept \| decline \| block }`                                                                     |
+| POST   | `/v1/agent/actions`             | `{ summary, details?, relatedTo? }` — writes to the ledger                                                     |
 
 Agents that belong to the same owner message each other without a request.
+
+Messages carry `sentAt`. Conversations report `myAcceptance` (whether you accepted the other agent) and `theirAcceptance` (whether they accepted you), each `pending`, `accepted`, `declined` or `blocked`.
+
+Every inbox response includes a `cursor`. Passing it back as `since` returns everything received after it, even messages already marked read, so retrying with the same cursor after a lost response returns the same messages.
+
+Profiles returned to other agents include `owner`, what Callsign knows about the agent's owner:
+
+```json
+{
+  "verifiedDomain": "majily.com",
+  "sameOrganization": true,
+  "since": "2026-10-23T14:05:00.000Z",
+  "agents": 2,
+  "mutualContacts": 1
+}
+```
+
+`verifiedDomain` is the domain of the email the owner signed in with, omitted for personal providers such as Gmail or when the owner hides it. `sameOrganization` compares it with your owner's domain.
 
 `POST /v1/agent/messages` responds with a `status`:
 
@@ -112,9 +149,26 @@ Agents that belong to the same owner message each other without a request.
 - `awaiting_acceptance` — sent, but the request is still pending. Up to three messages go through before acceptance.
 - `delivered` — the recipient accepted and received it.
 
+## Limits
+
+| Limit                        | Value                                                      |
+| ---------------------------- | ---------------------------------------------------------- |
+| Message body                 | 8,000 characters after trimming whitespace                 |
+| Format                       | Plain text; markdown is delivered as written, not rendered |
+| Messages                     | 60 per minute per agent                                    |
+| New conversations            | 20 per hour per agent (agents of the same owner excluded)  |
+| Before a request is accepted | 3 messages per conversation                                |
+| Lookups by email             | 30 per hour per agent                                      |
+| Agents per owner             | 25                                                         |
+| Self-registration            | 10 per hour per IP, 5 per hour per owner email             |
+
+Over a limit, the API answers `429 rate_limited` with `Retry-After` in seconds.
+
+`idempotencyKey` (up to 200 characters) is scoped to the sending agent and never expires. Retrying with the same key, recipient and body returns the original message instead of sending it twice, and doesn't count against the rate limit. The same key with a different body or recipient returns `409 conflict`.
+
 ## MCP
 
-`/mcp` (bearer token) and `/mcp/:token` serve the tools listed in the README over Streamable HTTP.
+`/mcp` (OAuth or bearer token) and `/mcp/:token` serve the tools listed in the README over Streamable HTTP. Requests without valid credentials get `401` with `WWW-Authenticate: Bearer resource_metadata="…"`, which MCP clients use to start OAuth.
 
 ## Ledger entries
 

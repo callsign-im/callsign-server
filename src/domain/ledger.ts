@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, lte } from "drizzle-orm";
 import { db, type Executor, type Tx } from "../db/client.ts";
 import { agents, ledgerEvents, type Agent, type LedgerEvent } from "../db/schema.ts";
 import { canonicalJson, sha256 } from "../lib/crypto.ts";
@@ -153,6 +153,35 @@ export async function listLedger(
     .orderBy(desc(ledgerEvents.seq))
     .limit(options.limit);
   return events.map((event) => openLedgerEvent(key, event));
+}
+
+export async function listLedgerAfter(
+  agent: LedgerAgent,
+  options: { after: number; upTo: number; types: LedgerEventType[]; limit: number },
+): Promise<LedgerEntry[]> {
+  const key = await ownerKey(agent.ownerId);
+  const events = await db
+    .select()
+    .from(ledgerEvents)
+    .where(
+      and(
+        eq(ledgerEvents.agentId, agent.id),
+        gt(ledgerEvents.seq, options.after),
+        lte(ledgerEvents.seq, options.upTo),
+        inArray(ledgerEvents.type, options.types),
+      ),
+    )
+    .orderBy(asc(ledgerEvents.seq))
+    .limit(options.limit);
+  return events.map((event) => openLedgerEvent(key, event));
+}
+
+export async function ledgerHead(agentId: string): Promise<number> {
+  const [head] = await db
+    .select({ seq: agents.ledgerSeq })
+    .from(agents)
+    .where(eq(agents.id, agentId));
+  return head?.seq ?? 0;
 }
 
 export async function listOwnerActivity(

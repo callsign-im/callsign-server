@@ -1,5 +1,6 @@
 import { sql } from "./db/client.ts";
 import { pruneReleasedHandles } from "./domain/agents.ts";
+import { pruneOAuth } from "./domain/oauth.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
 import { pruneExpiredRegistrations } from "./domain/registrations.ts";
 import { pruneFinishedJobs } from "./jobs/queue.ts";
@@ -14,6 +15,7 @@ const controller = new AbortController();
 async function maintenance() {
   try {
     await pruneExpiredCredentials();
+    await pruneOAuth();
     await pruneExpiredRegistrations();
     await pruneReleasedHandles();
     await pruneFinishedJobs(7);

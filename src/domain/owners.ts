@@ -45,7 +45,7 @@ export async function requestLogin(rawEmail: string, ip: string): Promise<void> 
 
 export async function verifyLogin(
   token: string,
-): Promise<{ owner: Owner; sessionToken: string; expiresAt: Date }> {
+): Promise<{ owner: Owner; created: boolean; sessionToken: string; expiresAt: Date }> {
   return db.transaction(async (tx) => {
     const [login] = await tx
       .update(loginTokens)
@@ -62,8 +62,9 @@ export async function verifyLogin(
       throw new AppError("unauthorized", "This sign-in link is invalid or has expired.");
     }
 
-    const owner = await upsertOwner(tx, login.email);
-    return { owner, ...(await createSession(tx, owner.id)) };
+    const existing = await findOwnerByEmail(tx, login.email);
+    const owner = existing ?? (await upsertOwner(tx, login.email));
+    return { owner, created: !existing, ...(await createSession(tx, owner.id)) };
   });
 }
 
@@ -83,6 +84,21 @@ export async function upsertOwner(executor: Executor, email: string): Promise<Ow
   const owner = await findOwnerByEmail(executor, email);
   if (!owner) throw new Error("owner upsert returned no row");
   return owner;
+}
+
+export async function updateOwner(owner: Owner, fields: { showDomain?: boolean }): Promise<Owner> {
+  if (fields.showDomain === undefined) return owner;
+  const [updated] = await db
+    .update(owners)
+    .set({ showDomain: fields.showDomain })
+    .where(eq(owners.id, owner.id))
+    .returning();
+  if (!updated) throw new AppError("not_found", "Account not found.");
+  return updated;
+}
+
+export function ownerAccountView(owner: Owner) {
+  return { id: owner.id, email: owner.email, showDomain: owner.showDomain };
 }
 
 export async function lockOwner(tx: Tx, ownerId: string): Promise<void> {

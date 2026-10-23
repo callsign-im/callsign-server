@@ -61,7 +61,7 @@ describe("messaging", () => {
     });
 
     const unblocked = await decideContact(bob, "@alice_agent", "unblock", "owner");
-    expect(unblocked.status).toBe("active");
+    expect(unblocked.myAcceptance).toBe("accepted");
     const sent = await sendMessage(alice, { to: "@bob_agent", body: "Hello again" });
     expect(sent.status).toBe("delivered");
   });
@@ -87,6 +87,27 @@ describe("messaging", () => {
     await expect(
       sendMessage(alice, { to: carol.handle, body: "Hi", idempotencyKey: "k-1" }),
     ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      sendMessage(alice, { to: "@bob_agent", body: "Something else", idempotencyKey: "k-1" }),
+    ).rejects.toThrow(/different message/);
+  });
+
+  it("names each side's acceptance and pages forward from a sequence number", async () => {
+    const { alice, bob } = await pair();
+    await sendMessage(alice, { to: "@bob_agent", body: "One" });
+    const pending = await getConversation(bob, "@alice_agent", { limit: 10, markRead: false });
+    expect(pending).toMatchObject({ myAcceptance: "pending", theirAcceptance: "accepted" });
+
+    await sendMessage(bob, { to: "@alice_agent", body: "Two" });
+    await sendMessage(alice, { to: "@bob_agent", body: "Three" });
+    const newer = await getConversation(bob, "@alice_agent", {
+      limit: 10,
+      after: 1,
+      markRead: false,
+    });
+    expect(newer.myAcceptance).toBe("accepted");
+    expect(newer.messages.map((m) => m.body)).toEqual(["Two", "Three"]);
+    expect(newer.messages[0]?.sentAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("does not mark unread messages as read when the agent sends", async () => {

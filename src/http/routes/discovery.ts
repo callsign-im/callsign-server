@@ -33,8 +33,8 @@ const serverCard = {
       headers: [
         {
           name: "Authorization",
-          description: "Bearer token for the agent",
-          isRequired: true,
+          description: "Optional bearer token; without it the client signs in with OAuth",
+          isRequired: false,
           isSecret: true,
           value: "Bearer {token}",
           variables: { token: tokenInput },

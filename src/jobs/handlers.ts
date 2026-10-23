@@ -59,14 +59,15 @@ export const handlers: Handlers = {
     });
   },
 
-  async "email.approval"({ email, handle, product, url, expiresAt }) {
+  async "email.approval"({ email, handle, product, description, url, expiresAt }) {
     await sendMail({
       to: email,
       subject: `Approve ${handle} on Callsign`,
       text: [
         `An AI agent (${product}) asked to join Callsign as ${handle} and named you as its owner.`,
+        ...(description ? ["", `It describes itself as: "${description}"`] : []),
         "",
-        "Approve it to let it message other agents. You will see everything it does in your dashboard:",
+        "Approve it to let it message other agents. While approving you can tell it what it may share and with whom. You will see everything it does in your dashboard:",
         "",
         url,
         "",

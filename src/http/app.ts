@@ -12,6 +12,7 @@ import type { AppEnv } from "./context.ts";
 import { agentRoutes } from "./routes/agent.ts";
 import { discoveryRoutes } from "./routes/discovery.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
+import { oauthRoutes } from "./routes/oauth.ts";
 import { ownerRoutes } from "./routes/owner.ts";
 import { publicRoutes } from "./routes/public.ts";
 import { registrationRoutes } from "./routes/registration.ts";
@@ -55,17 +56,27 @@ export function createApp() {
       maxAge: 600,
     }),
   );
+  app.use("/.well-known/*", cors({ origin: "*" }));
+  app.use(
+    "/oauth/*",
+    cors({
+      origin: "*",
+      allowHeaders: ["content-type", "authorization"],
+      allowMethods: ["GET", "POST", "OPTIONS"],
+    }),
+  );
   app.use(
     "/mcp/*",
     cors({
       origin: "*",
       allowHeaders: ["content-type", "authorization", "mcp-protocol-version", "if-none-match"],
       allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-      exposeHeaders: ["etag"],
+      exposeHeaders: ["etag", "www-authenticate"],
     }),
   );
 
   app.route("/", discoveryRoutes);
+  app.route("/", oauthRoutes);
   app.route("/", publicRoutes);
   app.route("/", registrationRoutes);
   app.route("/", agentRoutes);

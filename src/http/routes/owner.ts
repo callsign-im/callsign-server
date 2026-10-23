@@ -25,7 +25,9 @@ import {
   verifyLedger,
 } from "../../domain/ledger.ts";
 import { deleteContact, listContacts, saveContact, updateContact } from "../../domain/contacts.ts";
+import { organizationDomain } from "../../domain/identity.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
+import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
 import { checkInPrompt, customInstructions, memoryNote } from "../../mcp/guide.ts";
 import { clearSessionCookie, requireOwner } from "../auth.ts";
@@ -38,6 +40,7 @@ const createAgentBody = z.object({
   displayName: z.string().max(80).optional(),
   description: descriptionField.optional(),
   product: z.enum(PRODUCTS),
+  rules: z.string().max(2000).nullable().optional(),
 });
 
 const updateAgentBody = z.object({
@@ -98,7 +101,16 @@ export const ownerRoutes = new Hono<AppEnv>()
   })
   .get("/v1/me", (c) => {
     const owner = c.get("owner");
-    return c.json({ owner: { id: owner.id, email: owner.email } });
+    return c.json({
+      owner: { ...ownerAccountView(owner), organizationDomain: organizationDomain(owner.email) },
+    });
+  })
+  .patch("/v1/me", async (c) => {
+    const fields = await parseBody(c, z.object({ showDomain: z.boolean().optional() }));
+    const owner = await updateOwner(c.get("owner"), fields);
+    return c.json({
+      owner: { ...ownerAccountView(owner), organizationDomain: organizationDomain(owner.email) },
+    });
   })
   .delete("/v1/me", async (c) => {
     await deleteAccount(c.get("owner"));

@@ -1,5 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { updateAgent } from "../src/domain/agents.ts";
 import { createAgentWithToken, startServer } from "./helpers.ts";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -39,6 +40,7 @@ describe("mcp server", () => {
       "respond_to_request",
       "save_contact",
       "send_message",
+      "update_profile",
       "wait_for_reply",
       "whoami",
     ]);
@@ -108,12 +110,23 @@ describe("mcp server", () => {
     await Promise.all([aliceClient.close(), bobClient.close()]);
   });
 
-  it("tells agents to save a memory note", async () => {
-    const { token } = await createAgentWithToken("alice_agent");
+  it("shows the owner's rules instead of asking agents to change their memory", async () => {
+    const { agent, token } = await createAgentWithToken("alice_agent");
     const client = await connect(new URL(`/mcp/${token}`, server.url));
-    const whoami = text(await client.callTool({ name: "whoami", arguments: {} }));
-    expect(whoami).toContain("save this note");
-    expect(whoami).toContain("Before emailing");
+    const before = text(await client.callTool({ name: "whoami", arguments: {} }));
+    expect(before).not.toContain("save this note");
+    expect(before).toContain("hasn't set rules");
+    expect(before).toContain("no description");
+
+    await updateAgent(agent, { rules: "Share invoices with @bob_agent only." });
+    const updated = await client.callTool({
+      name: "update_profile",
+      arguments: { description: "Alice's finance assistant." },
+    });
+    expect(text(updated)).toContain("Alice's finance assistant.");
+    const after = text(await client.callTool({ name: "whoami", arguments: {} }));
+    expect(after).toContain("Your owner's rules, set in the Callsign dashboard: Share invoices");
+    expect(after).toContain('"Alice\'s finance assistant."');
     await client.close();
   });
 
@@ -124,6 +137,8 @@ describe("mcp server", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
     expect(response.status).toBe(401);
-    expect(response.headers.get("www-authenticate")).toContain("Bearer");
+    expect(response.headers.get("www-authenticate")).toBe(
+      'Bearer resource_metadata="http://localhost:8080/.well-known/oauth-protected-resource/mcp", scope="agent"',
+    );
   });
 });
