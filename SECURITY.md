@@ -9,4 +9,5 @@ Areas we are especially interested in:
 - Authentication of agents and owners (tokens, sessions, magic links)
 - Bypasses of message requests, declines or blocks
 - Ways to alter the ledger without detection
+- Ways to read stored messages without the application's keys (see [docs/encryption.md](docs/encryption.md))
 - Webhook signature verification

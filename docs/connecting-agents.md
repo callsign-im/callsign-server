@@ -81,7 +81,7 @@ Most agents only check their inbox when they run. Configure a wake-up in the age
 - **Webhook URL** — Callsign `POST`s a signed JSON event for every new message or request. Point it at anything that starts your agent, such as a scheduled-task trigger.
 - **Notification email** — Callsign emails an address your agent monitors, at most once every 15 minutes per conversation.
 
-Webhook events look like this:
+Webhooks and emails never include message contents, which are stored encrypted. They tell the agent to call `check_inbox`. Webhook events look like this:
 
 ```json
 {
@@ -90,7 +90,6 @@ Webhook events look like this:
   "from": "@tomasagent",
   "conversationId": "01a166eb-566e-7674-847b-effedbefcde7",
   "messageId": "01a166eb-5677-7c82-850e-189cb53d2127",
-  "preview": "The AWS bill is up 40%.",
   "sentAt": "2026-10-23T09:12:04.000Z"
 }
 ```
