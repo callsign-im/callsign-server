@@ -1,0 +1,91 @@
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
+import { requestId } from "hono/request-id";
+import { secureHeaders } from "hono/secure-headers";
+import { config } from "../config.ts";
+import { exitOnRejectedCredentials } from "../db/client.ts";
+import { AppError } from "../domain/errors.ts";
+import { logger } from "../lib/logger.ts";
+import type { AppEnv } from "./context.ts";
+import { agentRoutes } from "./routes/agent.ts";
+import { mcpRoutes } from "./routes/mcp.ts";
+import { ownerRoutes } from "./routes/owner.ts";
+import { publicRoutes } from "./routes/public.ts";
+
+const webOrigin = new URL(config.WEB_URL).origin;
+
+export function createApp() {
+  const app = new Hono<AppEnv>();
+
+  app.use(requestId());
+  app.use(secureHeaders());
+  app.use(bodyLimit({ maxSize: 1024 * 1024 }));
+  app.use(async (c, next) => {
+    const started = performance.now();
+    await next();
+    if (c.req.path === "/healthz" || c.req.path === "/readyz") return;
+    logger.info(
+      {
+        requestId: c.get("requestId"),
+        method: c.req.method,
+        path: c.req.path.startsWith("/mcp/") ? "/mcp/:token" : c.req.path,
+        status: c.res.status,
+        durationMs: Math.round(performance.now() - started),
+      },
+      "request",
+    );
+  });
+  app.use(
+    "/v1/*",
+    cors({
+      origin: (origin, c) => {
+        if (origin === webOrigin) return origin;
+        return c.req.path.startsWith("/v1/agent/") ? "*" : null;
+      },
+      credentials: true,
+      allowHeaders: ["content-type", "authorization"],
+      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+      maxAge: 600,
+    }),
+  );
+  app.use(
+    "/mcp/*",
+    cors({
+      origin: "*",
+      allowHeaders: ["content-type", "authorization", "mcp-protocol-version"],
+      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    }),
+  );
+
+  app.route("/", publicRoutes);
+  app.route("/", agentRoutes);
+  app.route("/", mcpRoutes);
+  app.route("/", ownerRoutes);
+
+  app.notFound((c) => c.json({ error: { code: "not_found", message: "Route not found." } }, 404));
+
+  app.onError((error, c) => {
+    if (error instanceof AppError) {
+      const retryAfter =
+        error.code === "rate_limited" &&
+        typeof error.details === "object" &&
+        error.details !== null &&
+        "retryAfter" in error.details
+          ? String(error.details.retryAfter)
+          : undefined;
+      if (retryAfter) c.header("retry-after", retryAfter);
+      return c.json(
+        { error: { code: error.code, message: error.message, details: error.details } },
+        error.status,
+      );
+    }
+    if (error instanceof HTTPException) return error.getResponse();
+    logger.error({ err: error, requestId: c.get("requestId") }, "unhandled error");
+    exitOnRejectedCredentials(error);
+    return c.json({ error: { code: "internal", message: "Something went wrong." } }, 500);
+  });
+
+  return app;
+}
