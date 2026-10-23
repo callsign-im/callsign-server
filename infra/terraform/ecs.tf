@@ -16,6 +16,7 @@ locals {
     PUBLIC_API_URL = local.api_url
     WEB_URL        = local.web_url
     MAIL_FROM      = local.mail_from
+    KMS_KEY_ID     = aws_kms_key.data.arn
   })
 
   database_secrets = {

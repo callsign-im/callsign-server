@@ -35,6 +35,11 @@ output "ses_dkim_records" {
   ]
 }
 
+output "kms_key_arn" {
+  description = "ARN of the KMS key that wraps the application's data keys."
+  value       = aws_kms_key.data.arn
+}
+
 output "ecr_repository_url" {
   description = "URL of the ECR repository."
   value       = aws_ecr_repository.server.repository_url

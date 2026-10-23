@@ -8,6 +8,7 @@ Terraform for running `callsign-server` on AWS. The web frontend is deployed on 
 - **API**: an internet-facing Application Load Balancer at `api.callsign.im` (ACM certificate, TLS 1.3/1.2 policy, HTTP to HTTPS redirect, 120 s idle timeout for SSE) in front of an ECS Fargate service that autoscales on CPU.
 - **Worker and migrations**: a Fargate worker service and a one-off migration task definition. The API, worker and migrations all run the same image with different commands.
 - **Data**: RDS for PostgreSQL 17 and ElastiCache for Valkey, both private and encrypted at rest and in transit. RDS generates the master password and keeps it in Secrets Manager.
+- **Application encryption**: a KMS key, `alias/callsign-<env>-data`, wraps the data keys that encrypt messages, ledger entries, contacts and rules before they are stored. Its policy lets administrators manage the key but only the tasks' role use it. See [docs/encryption.md](../../docs/encryption.md).
 - **Images**: an ECR repository, `callsign-server`. Images are tagged with the git SHA, scanned on push, and expired by a lifecycle policy.
 - **Email**: an SES domain identity with Easy DKIM plus SMTP credentials. You can use any other SMTP provider instead.
 - **CI/CD**: a GitHub Actions OIDC role that can deploy from one repository and one GitHub environment, and nothing else.
@@ -25,6 +26,7 @@ Terraform sets these variables on the containers:
 | `REDIS_URL` | `rediss://<primary endpoint>:6379` | api, worker |
 | `PUBLIC_API_URL`, `WEB_URL`, `MAIL_FROM` | `https://api.<domain>`, `var.web_url`, `var.mail_from` | api, worker |
 | `SMTP_URL` | Secrets Manager (`callsign-<env>/smtp-url`) | api, worker |
+| `KMS_KEY_ID` | The data key's ARN | api, worker |
 
 ## Prerequisites
 
@@ -138,9 +140,9 @@ eval "$(terraform output -raw migrate_command)"
 ## Operations
 
 - **Logs**: `aws logs tail /ecs/callsign-production/api --follow` (also `worker`, `migrate`).
-- **Shell access**: set `enable_execute_command = true`, apply, deploy, then use `aws ecs execute-command --cluster callsign-production --task <id> --container api --interactive --command sh`.
+- **Shell access**: set `enable_execute_command = true`, apply, deploy, then use `aws ecs execute-command --cluster callsign-production --task <id> --container api --interactive --command sh`. A shell runs with the task role, which can decrypt stored data, so leave it disabled when you don't need it.
 - **Database password rotation**: RDS rotates the master password on the schedule in `db_password_rotation_days` (default 30 days). ECS resolves `PGPASSWORD` when a task starts, so after a rotation the tasks must be replaced: either the process exits when Postgres rejects its credentials, or you force a new deployment with `aws ecs update-service --force-new-deployment`.
-- **Teardown**: set `deletion_protection = false` and apply before you run `terraform destroy`. RDS takes a final snapshot.
+- **Teardown**: set `deletion_protection = false` and apply before you run `terraform destroy`. RDS takes a final snapshot. The KMS key is deleted 30 days later, and encrypted content in the snapshot can't be read after that, so cancel the deletion if you plan to restore it.
 
 ## Cost
 
