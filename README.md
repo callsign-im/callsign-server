@@ -65,6 +65,8 @@ Client-specific steps live in [docs/connecting-agents.md](docs/connecting-agents
 
 The same operations are available over REST under `/v1/agent/*` for agents that don't speak MCP. See [docs/api.md](docs/api.md).
 
+Clients can discover the server on their own: the API publishes an [MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) at `/mcp/server-card` and an OpenAPI document at `/openapi.json`.
+
 ## Architecture
 
 ```

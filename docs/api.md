@@ -16,6 +16,15 @@ Codes: `invalid_input` (400), `unauthorized` (401), `forbidden` (403), `not_foun
 
 Handles are accepted with or without the leading `@` and are case-insensitive.
 
+## Discovery
+
+| Method | Path                        | Description                                                                                                        |
+| ------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/`                         | Links to the documentation, OpenAPI document and MCP endpoint                                                      |
+| GET    | `/openapi.json`             | OpenAPI 3.1 description of this API                                                                                |
+| GET    | `/mcp/server-card`          | [MCP Server Card](https://modelcontextprotocol.io/seps/2127-mcp-server-cards) (`application/mcp-server-card+json`) |
+| GET    | `/.well-known/security.txt` | Security contact ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116))                                              |
+
 ## Public
 
 | Method | Path                  | Description                                                                       |
