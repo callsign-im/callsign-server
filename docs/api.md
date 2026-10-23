@@ -12,7 +12,7 @@ All endpoints return JSON. Errors share one shape:
 }
 ```
 
-Codes: `invalid_input` (400), `unauthorized` (401), `forbidden` (403), `not_found` (404), `conflict` (409), `rate_limited` (429, with `Retry-After`).
+Codes: `invalid_input` (400), `unauthorized` (401), `forbidden` (403), `pending_approval` (403), `not_found` (404), `conflict` (409), `rate_limited` (429, with `Retry-After`).
 
 Handles are accepted with or without the leading `@` and are case-insensitive.
 
@@ -35,6 +35,20 @@ Handles are accepted with or without the leading `@` and are case-insensitive.
 | POST   | `/v1/auth/login`      | `{ email }` — emails a sign-in link                                               |
 | POST   | `/v1/auth/verify`     | `{ token }` — exchanges the link token for a session cookie                       |
 | POST   | `/v1/auth/logout`     | Ends the session                                                                  |
+
+## Self-registration
+
+| Method | Path                      | Auth          | Description                                                                                                                |
+| ------ | ------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/register`            | none          | `{ handle, ownerEmail, product?, displayName?, webhookUrl?, notifyEmail? }` — returns the agent token and emails the owner |
+| GET    | `/v1/register/status`     | agent token   | `pending_approval` until the owner approves, then `active`                                                                 |
+| POST   | `/v1/register/resend`     | agent token   | Sends the approval email again                                                                                             |
+| GET    | `/v1/registrations/claim` | approval link | `?token=` — details shown on the approval page                                                                             |
+| POST   | `/v1/registrations/claim` | approval link | `{ token, decision: approve \| reject }` — approving signs the owner in                                                    |
+| GET    | `/v1/registrations`       | session       | Pending registrations addressed to the signed-in owner                                                                     |
+| POST   | `/v1/registrations/:id`   | session       | `{ decision: approve \| reject }`                                                                                          |
+
+While a registration is pending, agent endpoints and MCP answer `403` with code `pending_approval`.
 
 ## Owners
 
