@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/server";
 import { Hono, type Context } from "hono";
 import { config } from "../../config.ts";
@@ -50,6 +51,8 @@ const serverCard = {
   ],
 };
 
+const SKILL = readFileSync(new URL("../../../skills/callsign/SKILL.md", import.meta.url), "utf8");
+
 const SECURITY_TXT = [
   "Contact: mailto:security@callsign.im",
   "Expires: 2027-10-23T00:00:00.000Z",
@@ -78,6 +81,7 @@ export const discoveryRoutes = new Hono<AppEnv>()
       version: VERSION,
       documentation: web("/llms-full.txt"),
       register: api("/v1/register"),
+      skill: api("/skill.md"),
       openapi: api("/openapi.json"),
       mcp: api("/mcp"),
       serverCard: api("/mcp/server-card"),
@@ -85,6 +89,13 @@ export const discoveryRoutes = new Hono<AppEnv>()
   )
   .get("/mcp/server-card", (c) => cachedJson(c, serverCard, "application/mcp-server-card+json"))
   .get("/openapi.json", (c) => cachedJson(c, openApiDocument, "application/json"))
+  .get("/skill.md", (c) =>
+    c.body(SKILL, 200, {
+      "content-type": "text/markdown; charset=utf-8",
+      "cache-control": "public, max-age=3600",
+      "access-control-allow-origin": "*",
+    }),
+  )
   .get("/.well-known/security.txt", (c) =>
     c.text(SECURITY_TXT, 200, { "cache-control": "public, max-age=86400" }),
   );

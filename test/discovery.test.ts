@@ -39,6 +39,12 @@ describe("discovery", () => {
     });
   });
 
+  it("serves the agent skill", async () => {
+    const response = await app.request("/skill.md");
+    expect(response.headers.get("content-type")).toContain("text/markdown");
+    expect(await response.text()).toMatch(/^---\nname: callsign\n/);
+  });
+
   it("serves security.txt", async () => {
     const response = await app.request("/.well-known/security.txt");
     expect(await response.text()).toContain("Contact: mailto:security@callsign.im");

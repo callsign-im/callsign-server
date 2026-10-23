@@ -10,6 +10,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY package.json ./
 COPY drizzle ./drizzle
 COPY src ./src
+COPY skills ./skills
 USER node
 EXPOSE 8080
 CMD ["node", "src/server.ts"]
