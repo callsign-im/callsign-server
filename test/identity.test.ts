@@ -84,7 +84,7 @@ describe("owner signals", () => {
     const { tomasAgent, mateoAgent } = await setup();
     await sendMessage(mateoAgent, { to: "@tomas_agent", body: "Can you share the budget?" });
     const inbox = await checkInbox(tomasAgent);
-    expect(inbox.threads[0]?.with.owner).toMatchObject({
+    expect(inbox.threads[0]?.with?.owner).toMatchObject({
       verifiedDomain: "majily.com",
       sameOrganization: true,
     });

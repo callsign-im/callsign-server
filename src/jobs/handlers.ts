@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { config } from "../config.ts";
 import { db } from "../db/client.ts";
-import { agents, messages, type Agent, type Message } from "../db/schema.ts";
+import { agents, conversations, messages, type Agent } from "../db/schema.ts";
 import { webhookSecret } from "../domain/agents.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
@@ -15,34 +15,82 @@ const EMAIL_THROTTLE_SECONDS = 900;
 
 type Handlers = { [K in JobKind]: (payload: JobPayloads[K], jobId: string) => Promise<void> };
 
-async function loadDelivery(payload: AgentNotification) {
+type Notice = {
+  recipient: Agent;
+  event: Record<string, unknown>;
+  subject: string;
+  summary: string;
+  throttleKey: string;
+};
+
+async function agentById(id: string): Promise<Agent | undefined> {
+  const [agent] = await db.select().from(agents).where(eq(agents.id, id));
+  return agent;
+}
+
+async function describe(payload: AgentNotification): Promise<Notice | null> {
+  const recipient = await agentById(payload.agentId);
+  if (!recipient) return null;
+  const to = formatHandle(recipient.handle);
+
+  if (payload.kind === "answer") {
+    return {
+      recipient,
+      event: { type: "owner.answered", agent: to, questionId: payload.questionId },
+      subject: `Your owner answered ${to} on Callsign`,
+      summary: `The owner of ${to} answered one of its questions.`,
+      throttleKey: `notify-email:${recipient.id}:answers`,
+    };
+  }
+
+  const [conversation] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, payload.conversationId));
+  if (!conversation) return null;
+  const group = conversation.name ? `#${conversation.name}` : null;
+
+  if (payload.kind === "invitation") {
+    const inviter = await agentById(payload.fromId);
+    if (!inviter || !group) return null;
+    const from = formatHandle(inviter.handle);
+    return {
+      recipient,
+      event: { type: "group.invited", agent: to, from, group, conversationId: conversation.id },
+      subject: `${from} invited ${to} to ${group} on Callsign`,
+      summary: `${from} invited ${to} to the group ${group}.`,
+      throttleKey: `notify-email:${recipient.id}:invite:${conversation.id}`,
+    };
+  }
+
   const [row] = await db
     .select({ message: messages, sender: agents })
     .from(messages)
     .innerJoin(agents, eq(agents.id, messages.senderId))
-    .where(and(eq(messages.conversationId, payload.conversationId), eq(messages.seq, payload.seq)));
-  const [recipient] = await db.select().from(agents).where(eq(agents.id, payload.agentId));
-  return row && recipient ? { ...row, recipient } : null;
+    .where(and(eq(messages.conversationId, conversation.id), eq(messages.seq, payload.seq)));
+  if (!row) return null;
+  const from = formatHandle(row.sender.handle);
+  return {
+    recipient,
+    event: {
+      type: payload.kind === "request" ? "request.received" : "message.received",
+      agent: to,
+      from,
+      ...(group && { group }),
+      conversationId: conversation.id,
+      messageId: row.message.id,
+      sentAt: row.message.createdAt.toISOString(),
+    },
+    subject: group
+      ? `${from} wrote in ${group} on Callsign`
+      : `${from} sent a message to ${to} on Callsign`,
+    summary: group ? `${from} wrote in ${group}.` : `${from} sent a message to ${to}.`,
+    throttleKey: `notify-email:${recipient.id}:${conversation.id}`,
+  };
 }
 
 export function signWebhook(secret: string, timestamp: number, body: string): string {
   return `t=${timestamp},v1=${hmacSha256(secret, `${timestamp}.${body}`)}`;
-}
-
-function webhookEvent(
-  kind: AgentNotification["kind"],
-  recipient: Agent,
-  sender: Agent,
-  message: Message,
-) {
-  return {
-    type: kind === "request" ? "request.received" : "message.received",
-    agent: formatHandle(recipient.handle),
-    from: formatHandle(sender.handle),
-    conversationId: message.conversationId,
-    messageId: message.id,
-    sentAt: message.createdAt.toISOString(),
-  };
 }
 
 export const handlers: Handlers = {
@@ -77,15 +125,45 @@ export const handlers: Handlers = {
     });
   },
 
-  async "agent.webhook"(payload, jobId) {
-    const delivery = await loadDelivery(payload);
-    const url = delivery?.recipient.webhookUrl;
-    if (!delivery || !url) return;
+  async "email.question"({ email, handle, question, url }) {
+    await sendMail({
+      to: email,
+      subject: `${handle} has a question for you`,
+      text: [
+        `${handle} asked you on Callsign:`,
+        "",
+        question,
+        "",
+        `Answer it in your dashboard and ${handle} gets the answer in its inbox: ${url}`,
+      ].join("\n"),
+    });
+  },
 
-    const body = JSON.stringify(
-      webhookEvent(payload.kind, delivery.recipient, delivery.sender, delivery.message),
-    );
-    const secret = await webhookSecret(delivery.recipient);
+  async "email.invitation"({ email, from, fromName, domain, note, url, existing }) {
+    const who = domain ? `${from} (${fromName}, verified at ${domain})` : `${from} (${fromName})`;
+    await sendMail({
+      to: email,
+      subject: `${from} wants to reach your agent on Callsign`,
+      text: [
+        `${who} invited you to Callsign, the messaging network for AI agents.`,
+        ...(note ? ["", `"${note}"`] : []),
+        "",
+        existing
+          ? `You already have an account, so ${from} can now reach your agents without a message request. Open your dashboard to reply: ${url}`
+          : `Sign up and connect your agent so it can reply. ${from} will be in its contacts, and the message above will be waiting: ${url}`,
+        "",
+        "If you don't know them, ignore this email; we won't send you another one for this invitation.",
+      ].join("\n"),
+    });
+  },
+
+  async "agent.webhook"(payload, jobId) {
+    const notice = await describe(payload);
+    const url = notice?.recipient.webhookUrl;
+    if (!notice || !url) return;
+
+    const body = JSON.stringify(notice.event);
+    const secret = await webhookSecret(notice.recipient);
     const timestamp = Math.floor(Date.now() / 1000);
     const status = await postJson(
       new URL(url),
@@ -101,27 +179,25 @@ export const handlers: Handlers = {
   },
 
   async "agent.email"(payload) {
-    const delivery = await loadDelivery(payload);
-    const to = delivery?.recipient.notifyEmail;
-    if (!delivery || !to) return;
+    const notice = await describe(payload);
+    const to = notice?.recipient.notifyEmail;
+    if (!notice || !to) return;
 
-    const throttleKey = `notify-email:${payload.agentId}:${payload.conversationId}`;
     const acquired = await bestEffort(
-      () => redis.set(throttleKey, "1", "EX", EMAIL_THROTTLE_SECONDS, "NX"),
+      () => redis.set(notice.throttleKey, "1", "EX", EMAIL_THROTTLE_SECONDS, "NX"),
       "OK",
     );
     if (acquired !== "OK") return;
 
-    const recipient = formatHandle(delivery.recipient.handle);
-    const sender = formatHandle(delivery.sender.handle);
-    const dashboard = new URL(`/dashboard/agents/${delivery.recipient.handle}`, config.APP_URL);
+    const handle = formatHandle(notice.recipient.handle);
+    const dashboard = new URL(`/dashboard/agents/${notice.recipient.handle}`, config.APP_URL);
     await sendMail({
       to,
-      subject: `${sender} sent a message to ${recipient} on Callsign`,
+      subject: notice.subject,
       text: [
-        `${sender} sent a message to ${recipient}. For privacy, emails never include message contents.`,
+        `${notice.summary} For privacy, emails never include message contents.`,
         "",
-        `Ask ${recipient} to check its Callsign inbox, or review the conversation at ${dashboard.toString()}`,
+        `Ask ${handle} to check its Callsign inbox, or review it at ${dashboard.toString()}`,
       ].join("\n"),
     });
   },

@@ -32,15 +32,24 @@ describe("mcp server", () => {
     });
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "ask_owner",
       "check_inbox",
+      "create_group",
       "find_agent",
       "get_conversation",
+      "get_file",
+      "invite_person",
+      "invite_to_group",
+      "leave_group",
       "list_contacts",
+      "list_groups",
       "log_action",
+      "remove_from_group",
       "respond_to_request",
       "save_contact",
       "send_message",
       "update_profile",
+      "upload_file",
       "wait_for_reply",
       "whoami",
     ]);

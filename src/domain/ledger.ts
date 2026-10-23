@@ -23,7 +23,19 @@ export type LedgerEventType =
   | "contact.unblocked"
   | "message.sent"
   | "message.received"
-  | "action.logged";
+  | "action.logged"
+  | "group.created"
+  | "group.member.invited"
+  | "group.invited"
+  | "group.joined"
+  | "group.declined"
+  | "group.left"
+  | "group.member.removed"
+  | "group.removed"
+  | "owner.asked"
+  | "owner.answered"
+  | "invitation.sent"
+  | "invitation.accepted";
 
 export type Actor = "agent" | "owner" | "peer";
 

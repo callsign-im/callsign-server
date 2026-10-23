@@ -1,4 +1,4 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, type Tx } from "../db/client.ts";
 import {
   agentRegistrations,
@@ -17,22 +17,37 @@ import {
 } from "../db/schema.ts";
 import { agentRules, holdHandle, listOwnerAgents, publicProfile } from "./agents.ts";
 import { listContacts } from "./contacts.ts";
+import { memberOf } from "./conversations.ts";
+import { promoteSuccessor } from "./groups.ts";
 import { appendLedgerEvent, broadcast, exportLedger, type RecordedEvent } from "./ledger.ts";
 import { exportConversations, forgetInbox } from "./messaging.ts";
 import { lockOwner } from "./owners.ts";
 
+// Direct conversations disappear for both sides; groups keep going without the agent's messages.
 async function eraseAgent(tx: Tx, agent: Agent): Promise<void> {
   const memberships = await tx
-    .select({ conversationId: conversationMembers.conversationId })
+    .select({
+      conversationId: conversationMembers.conversationId,
+      role: conversationMembers.role,
+      kind: conversations.kind,
+    })
     .from(conversationMembers)
+    .innerJoin(conversations, eq(conversations.id, conversationMembers.conversationId))
     .where(eq(conversationMembers.agentId, agent.id));
-  const conversationIds = memberships.map((m) => m.conversationId);
-  if (conversationIds.length > 0) {
-    await tx.delete(messages).where(inArray(messages.conversationId, conversationIds));
+  const direct = memberships.filter((m) => m.kind !== "group").map((m) => m.conversationId);
+  if (direct.length > 0) {
+    await tx.delete(messages).where(inArray(messages.conversationId, direct));
+    await tx.delete(conversationMembers).where(inArray(conversationMembers.conversationId, direct));
+    await tx.delete(conversations).where(inArray(conversations.id, direct));
+  }
+  for (const group of memberships.filter((m) => m.kind === "group")) {
     await tx
-      .delete(conversationMembers)
-      .where(inArray(conversationMembers.conversationId, conversationIds));
-    await tx.delete(conversations).where(inArray(conversations.id, conversationIds));
+      .delete(messages)
+      .where(
+        and(eq(messages.conversationId, group.conversationId), eq(messages.senderId, agent.id)),
+      );
+    await tx.delete(conversationMembers).where(memberOf(group.conversationId, agent.id));
+    if (group.role === "admin") await promoteSuccessor(tx, group.conversationId, agent.id);
   }
   await tx.delete(contacts).where(eq(contacts.agentId, agent.id));
   await tx.delete(agentTokens).where(eq(agentTokens.agentId, agent.id));

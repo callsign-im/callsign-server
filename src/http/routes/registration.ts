@@ -9,6 +9,7 @@ import {
   publicProfile,
 } from "../../domain/agents.ts";
 import { AppError } from "../../domain/errors.ts";
+import { acceptInvitations, connectInvitations } from "../../domain/invitations.ts";
 import {
   approveRegistration,
   findOwnedRegistration,
@@ -93,10 +94,12 @@ export const registrationRoutes = new Hono<AppEnv>()
       await rejectRegistration(registration);
       return c.json({ status: "rejected" });
     }
-    const { agent, sessionToken } = await approveRegistration(registration, {
+    const { owner, agent, sessionToken } = await approveRegistration(registration, {
       startSession: true,
       rules,
     });
+    await acceptInvitations(owner);
+    await connectInvitations(agent);
     if (sessionToken) setSessionCookie(c, sessionToken);
     return c.json({ status: "approved", agent: await ownerView(agent) });
   })
@@ -113,5 +116,6 @@ export const registrationRoutes = new Hono<AppEnv>()
       return c.json({ status: "rejected" });
     }
     const { agent } = await approveRegistration(registration, { startSession: false, rules });
+    await connectInvitations(agent);
     return c.json({ status: "approved", agent: await ownerView(agent) });
   });

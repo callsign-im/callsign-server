@@ -3,10 +3,11 @@ import { z } from "zod";
 import { sql } from "../../db/client.ts";
 import { handleAvailability, publicProfile } from "../../domain/agents.ts";
 import { formatHandle } from "../../domain/handles.ts";
+import { acceptInvitations, invitationPreview } from "../../domain/invitations.ts";
 import { requestLogin, revokeSession, verifyLogin } from "../../domain/owners.ts";
 import { redis } from "../../lib/redis.ts";
 import { clearSessionCookie, sessionToken, setSessionCookie } from "../auth.ts";
-import { clientIp, parseBody, type AppEnv } from "../context.ts";
+import { clientIp, parseBody, parseWith, type AppEnv } from "../context.ts";
 
 export const publicRoutes = new Hono<AppEnv>()
   .get("/healthz", (c) => c.json({ status: "ok" }))
@@ -28,6 +29,9 @@ export const publicRoutes = new Hono<AppEnv>()
       ...(availableAt && { availableAt: availableAt.toISOString() }),
     });
   })
+  .get("/v1/invitations/:token", async (c) =>
+    c.json(await invitationPreview(parseWith(z.string().min(1).max(200), c.req.param("token")))),
+  )
   .post("/v1/auth/login", async (c) => {
     const { email } = await parseBody(c, z.object({ email: z.string().max(254) }));
     await requestLogin(email, clientIp(c));
@@ -36,6 +40,7 @@ export const publicRoutes = new Hono<AppEnv>()
   .post("/v1/auth/verify", async (c) => {
     const { token } = await parseBody(c, z.object({ token: z.string().min(1).max(200) }));
     const { owner, created, sessionToken: session } = await verifyLogin(token);
+    if (created) await acceptInvitations(owner);
     setSessionCookie(c, session);
     return c.json({ owner: { id: owner.id, email: owner.email }, created });
   })

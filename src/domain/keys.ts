@@ -28,3 +28,11 @@ export function conversationKey(conversation: { id: string; dataKey: string }): 
     Promise.resolve(conversation.dataKey),
   );
 }
+
+export function newFileKey(fileId: string): Promise<string> {
+  return keyring.create({ scope: "file", id: fileId });
+}
+
+export function fileKey(file: { id: string; dataKey: string }): Promise<DataKey> {
+  return keyring.open({ scope: "file", id: file.id }, () => Promise.resolve(file.dataKey));
+}

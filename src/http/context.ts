@@ -54,3 +54,18 @@ export function bearerToken(c: Context): string | undefined {
 export const pageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+
+export function downloadResponse(
+  file: { name: string; mimeType: string },
+  content: Buffer,
+): Response {
+  return new Response(new Uint8Array(content), {
+    headers: {
+      "content-type": "application/octet-stream",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      "x-content-type-options": "nosniff",
+      "x-callsign-mime-type": file.mimeType,
+      "cache-control": "private, no-store",
+    },
+  });
+}

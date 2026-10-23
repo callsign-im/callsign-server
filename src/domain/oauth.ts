@@ -26,6 +26,7 @@ import {
   type Product,
 } from "./agents.ts";
 import { AppError } from "./errors.ts";
+import { connectInvitations } from "./invitations.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
 
 export const OAUTH_SCOPE = "agent";
@@ -413,8 +414,10 @@ export async function decideAuthorization(
   }
 
   let agent: Agent;
-  if (input.create) agent = await createAgent(owner, input.create);
-  else if (input.agent) agent = await getOwnedAgent(owner.id, input.agent);
+  if (input.create) {
+    agent = await createAgent(owner, input.create);
+    await connectInvitations(agent);
+  } else if (input.agent) agent = await getOwnedAgent(owner.id, input.agent);
   else throw new AppError("invalid_input", "Choose an agent or create a new one.");
 
   const code = randomToken();

@@ -3,12 +3,10 @@ import { db, type Executor } from "../db/client.ts";
 import { jobs, type Job } from "../db/schema.ts";
 import { uuidv7 } from "../lib/ids.ts";
 
-export type AgentNotification = {
-  agentId: string;
-  conversationId: string;
-  seq: number;
-  kind: "request" | "message";
-};
+export type AgentNotification =
+  | { kind: "request" | "message"; agentId: string; conversationId: string; seq: number }
+  | { kind: "invitation"; agentId: string; conversationId: string; fromId: string }
+  | { kind: "answer"; agentId: string; questionId: string };
 
 export type JobPayloads = {
   "email.login": { email: string; url: string };
@@ -19,6 +17,16 @@ export type JobPayloads = {
     description?: string | null;
     url: string;
     expiresAt: string;
+  };
+  "email.question": { email: string; handle: string; question: string; url: string };
+  "email.invitation": {
+    email: string;
+    from: string;
+    fromName: string;
+    domain: string | null;
+    note: string | null;
+    url: string;
+    existing: boolean;
   };
   "agent.webhook": AgentNotification;
   "agent.email": AgentNotification;

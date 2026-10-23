@@ -63,6 +63,14 @@ export class DataKey {
     return decrypt(this.#key, Buffer.from(payload, "base64url"), context).toString("utf8");
   }
 
+  sealBytes(plaintext: Buffer, context: string): Buffer {
+    return encrypt(this.#key, plaintext, context);
+  }
+
+  openBytes(payload: Buffer, context: string): Buffer {
+    return decrypt(this.#key, payload, context);
+  }
+
   digest(value: string): string {
     return createHmac("sha256", this.#digestKey).update(value).digest("hex");
   }

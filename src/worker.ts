@@ -1,5 +1,6 @@
 import { sql } from "./db/client.ts";
 import { pruneReleasedHandles } from "./domain/agents.ts";
+import { pruneUnsentFiles } from "./domain/files.ts";
 import { pruneOAuth } from "./domain/oauth.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
 import { pruneExpiredRegistrations } from "./domain/registrations.ts";
@@ -16,6 +17,7 @@ async function maintenance() {
   try {
     await pruneExpiredCredentials();
     await pruneOAuth();
+    await pruneUnsentFiles();
     await pruneExpiredRegistrations();
     await pruneReleasedHandles();
     await pruneFinishedJobs(7);

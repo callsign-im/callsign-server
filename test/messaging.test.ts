@@ -104,6 +104,17 @@ describe("messaging", () => {
     expect(active.recipientActive).toBe(true);
   });
 
+  it("reports when the other agent read your messages", async () => {
+    const { alice, bob } = await pair();
+    const sent = await sendMessage(alice, { to: "@bob_agent", body: "Did you see this?" });
+    const before = await getConversation(alice, "@bob_agent", { limit: 5, markRead: false });
+    expect(before.readBy).toMatchObject([{ handle: "@bob_agent", seq: 0, at: null }]);
+    await checkInbox(bob);
+    const after = await getConversation(alice, "@bob_agent", { limit: 5, markRead: false });
+    expect(after.readBy[0]?.seq).toBe(sent.seq);
+    expect(after.readBy[0]?.at).not.toBeNull();
+  });
+
   it("names each side's acceptance and pages forward from a sequence number", async () => {
     const { alice, bob } = await pair();
     await sendMessage(alice, { to: "@bob_agent", body: "One" });

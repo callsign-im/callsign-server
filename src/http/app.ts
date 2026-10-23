@@ -24,7 +24,13 @@ export function createApp() {
 
   app.use(requestId());
   app.use(secureHeaders());
-  app.use(bodyLimit({ maxSize: 1024 * 1024 }));
+  // File uploads arrive base64-encoded through MCP or the files endpoint.
+  app.use((c, next) => {
+    const large = ["/mcp", "/v1/agent/files"].some(
+      (prefix) => c.req.path === prefix || c.req.path.startsWith(`${prefix}/`),
+    );
+    return bodyLimit({ maxSize: (large ? 8 : 1) * 1024 * 1024 })(c, next);
+  });
   app.use(async (c, next) => {
     const started = performance.now();
     await next();

@@ -25,13 +25,17 @@ import {
   verifyLedger,
 } from "../../domain/ledger.ts";
 import { deleteContact, listContacts, saveContact, updateContact } from "../../domain/contacts.ts";
+import { readFile } from "../../domain/files.ts";
+import { leaveGroup } from "../../domain/groups.ts";
 import { organizationDomain } from "../../domain/identity.ts";
+import { connectInvitations } from "../../domain/invitations.ts";
+import { answerQuestion, listOwnerQuestions } from "../../domain/questions.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
 import { checkInPrompt, customInstructions, memoryNote } from "../../mcp/guide.ts";
 import { clearSessionCookie, requireOwner } from "../auth.ts";
-import { pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
+import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 
 const descriptionField = z.string().max(MAX_DESCRIPTION_LENGTH);
 
@@ -76,6 +80,23 @@ export const ownerRoutes = new Hono<AppEnv>()
   .use("/v1/events", requireOwner)
   .use("/v1/contacts", requireOwner)
   .use("/v1/contacts/*", requireOwner)
+  .use("/v1/questions", requireOwner)
+  .use("/v1/questions/*", requireOwner)
+  .get("/v1/questions", async (c) => {
+    const { status } = parseWith(
+      z.object({ status: z.enum(["open", "answered"]).default("open") }),
+      c.req.query(),
+    );
+    return c.json({
+      questions: await listOwnerQuestions(c.get("owner").id, { open: status === "open" }),
+    });
+  })
+  .post("/v1/questions/:id", async (c) => {
+    const { answer } = await parseBody(c, z.object({ answer: z.string().min(1).max(4000) }));
+    return c.json(
+      await answerQuestion(c.get("owner").id, parseWith(z.uuid(), c.req.param("id")), answer),
+    );
+  })
   .get("/v1/contacts", async (c) => c.json({ contacts: await listContacts(c.get("owner").id) }))
   .post("/v1/contacts", async (c) => {
     const input = await parseBody(c, ownerContactBody);
@@ -130,6 +151,7 @@ export const ownerRoutes = new Hono<AppEnv>()
   .post("/v1/agents", async (c) => {
     const input = await parseBody(c, createAgentBody);
     const agent = await createAgent(c.get("owner"), input);
+    await connectInvitations(agent);
     return c.json({ agent: await ownerView(agent), mcpUrl: mcpUrl() }, 201);
   })
   .get("/v1/agents/:handle", async (c) => {
@@ -182,6 +204,16 @@ export const ownerRoutes = new Hono<AppEnv>()
       z.object({ action: z.enum(["accept", "decline", "block", "unblock"]) }),
     );
     return c.json(await decideContact(agent, c.req.param("peer"), action, "owner"));
+  })
+  .get("/v1/agents/:handle/files/:id", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    const { file, content } = await readFile(agent, parseWith(z.uuid(), c.req.param("id")));
+    return downloadResponse(file, content);
+  })
+  .post("/v1/agents/:handle/groups/:name/leave", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    await leaveGroup(agent, `#${c.req.param("name")}`, "owner");
+    return c.body(null, 204);
   })
   .get("/v1/agents/:handle/ledger", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));

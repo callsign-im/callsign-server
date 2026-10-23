@@ -25,6 +25,10 @@ const sealed = customType<{ data: Sealed; driverData: string }>({
   fromDriver: (value) => new Sealed(value),
 });
 
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
 export const owners = pgTable("owners", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -160,18 +164,25 @@ export const heldHandles = pgTable("held_handles", {
   availableAt: timestamptz("available_at").notNull(),
 });
 
-export const conversations = pgTable("conversations", {
-  id: uuid("id").primaryKey(),
-  kind: text("kind").notNull(),
-  directKey: text("direct_key").unique(),
-  createdBy: uuid("created_by")
-    .notNull()
-    .references(() => agents.id),
-  dataKey: text("data_key").notNull(),
-  lastSeq: counter("last_seq").notNull().default(0),
-  lastMessageAt: timestamptz("last_message_at"),
-  createdAt: createdAt(),
-});
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey(),
+    kind: text("kind").notNull(),
+    directKey: text("direct_key").unique(),
+    name: text("name"),
+    createdBy: uuid("created_by").references(() => agents.id, { onDelete: "set null" }),
+    dataKey: text("data_key").notNull(),
+    lastSeq: counter("last_seq").notNull().default(0),
+    lastMessageAt: timestamptz("last_message_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("conversations_name_idx")
+      .on(t.name)
+      .where(sql`${t.name} is not null`),
+  ],
+);
 
 export const conversationMembers = pgTable(
   "conversation_members",
@@ -183,7 +194,13 @@ export const conversationMembers = pgTable(
       .notNull()
       .references(() => agents.id),
     status: text("status").notNull(),
+    role: text("role").notNull().default("member"),
+    invitedBy: uuid("invited_by"),
+    inviteNote: sealed("invite_note"),
+    notifiedAt: timestamptz("notified_at"),
+    joinedSeq: counter("joined_seq").notNull().default(0),
     lastReadSeq: counter("last_read_seq").notNull().default(0),
+    readAt: timestamptz("read_at"),
     joinedAt: createdAt(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
@@ -213,6 +230,72 @@ export const messages = pgTable(
     uniqueIndex("messages_sender_idempotency_key_idx")
       .on(t.senderId, t.idempotencyKey)
       .where(sql`${t.idempotencyKey} is not null`),
+  ],
+);
+
+export const files = pgTable(
+  "files",
+  {
+    id: uuid("id").primaryKey(),
+    uploaderId: uuid("uploader_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    messageId: uuid("message_id").references(() => messages.id, { onDelete: "cascade" }),
+    name: sealed("name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    size: integer("size").notNull(),
+    contentHash: text("content_hash").notNull(),
+    dataKey: text("data_key").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("files_message_id_idx").on(t.messageId),
+    index("files_uploader_id_idx").on(t.uploaderId),
+  ],
+);
+
+export const ownerQuestions = pgTable(
+  "owner_questions",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    question: sealed("question").notNull(),
+    context: sealed("context"),
+    answer: sealed("answer"),
+    answeredAt: timestamptz("answered_at"),
+    deliveredAt: timestamptz("delivered_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("owner_questions_agent_id_idx").on(t.agentId)],
+);
+
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey(),
+    inviterId: uuid("inviter_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    emailHash: text("email_hash").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    note: sealed("note"),
+    acceptedOwnerId: uuid("accepted_owner_id").references(() => owners.id, {
+      onDelete: "cascade",
+    }),
+    acceptedAt: timestamptz("accepted_at"),
+    deliveredAt: timestamptz("delivered_at"),
+    expiresAt: timestamptz("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("invitations_email_hash_idx").on(t.emailHash),
+    index("invitations_accepted_owner_id_idx").on(t.acceptedOwnerId),
   ],
 );
 
@@ -286,3 +369,8 @@ export type Job = typeof jobs.$inferSelect;
 export type AgentRegistration = typeof agentRegistrations.$inferSelect;
 export type Contact = typeof contacts.$inferSelect;
 export type OAuthAuthorization = typeof oauthAuthorizations.$inferSelect;
+export type Conversation = typeof conversations.$inferSelect;
+export type ConversationMember = typeof conversationMembers.$inferSelect;
+export type StoredFile = typeof files.$inferSelect;
+export type OwnerQuestion = typeof ownerQuestions.$inferSelect;
+export type Invitation = typeof invitations.$inferSelect;
