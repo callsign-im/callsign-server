@@ -1,0 +1,184 @@
+name: Deploy (EC2)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment to deploy to
+        type: environment
+        default: production
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment || 'production' }}
+    if: vars.DEPLOY_TARGET == 'ec2'
+    # The host is a Graviton instance, so the image is built natively for arm64.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    environment: ${{ inputs.environment || 'production' }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+      RELEASES_BUCKET: ${{ vars.RELEASES_BUCKET }}
+      API_URL: ${{ vars.API_URL }}
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Check configuration
+        run: |
+          missing=0
+          for name in AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY EC2_INSTANCE_ID RELEASES_BUCKET API_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing variable ${name}. Set it from 'terraform output github_actions_variables'."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          echo "uri=${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" > /dev/null 2>&1; then
+            echo "Image ${IMAGE_TAG} already exists; skipping build."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.image.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push image
+        if: steps.image.outputs.exists == 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.image.outputs.uri }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload release files
+        run: aws s3 sync infra/aws-ec2/release "s3://${RELEASES_BUCKET}/${IMAGE_TAG}/" --delete --only-show-errors
+
+      - name: Deploy on the host
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: |
+          release_dir="/opt/callsign/releases/${IMAGE_TAG}"
+          script=$(cat <<SCRIPT
+          set -euo pipefail
+          cloud-init status --wait > /dev/null || true
+          aws s3 sync "s3://${RELEASES_BUCKET}/${IMAGE_TAG}/" "${release_dir}" --delete --only-show-errors
+          bash "${release_dir}/deploy.sh" "${IMAGE}"
+          SCRIPT
+          )
+
+          command_id=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Deploy ${IMAGE_TAG}" \
+            --parameters "$(jq -n --arg script "$script" '{commands: [$script], executionTimeout: ["1200"]}')" \
+            --query Command.CommandId --output text)
+          echo "Sent command ${command_id}"
+
+          # Polls instead of `aws ssm wait command-executed`, which gives up after 100 seconds.
+          status=Pending
+          for _ in $(seq 240); do
+            status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" \
+              --query Status --output text 2> /dev/null || echo Pending)
+            case "$status" in
+              Pending | InProgress | Delayed) sleep 5 ;;
+              *) break ;;
+            esac
+          done
+
+          echo "::group::Host output"
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text
+          echo "::endgroup::"
+
+          if [ "$status" != "Success" ]; then
+            echo "::error::Deploy on the host ended with status ${status}."
+            exit 1
+          fi
+
+      - name: Check health
+        run: |
+          for _ in $(seq 30); do
+            if curl -fsS "${API_URL}/healthz" > /dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::${API_URL}/healthz did not answer after the deploy."
+          exit 1
+
+      - name: Tag image as latest
+        run: |
+          image=$(aws ecr batch-get-image --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" \
+            --accepted-media-types application/vnd.docker.distribution.manifest.v2+json application/vnd.oci.image.manifest.v1+json \
+            --query 'images[0]' --output json)
+          digest=$(jq -r '.imageId.imageDigest' <<< "$image")
+          current=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag=latest \
+            --query 'imageDetails[0].imageDigest' --output text 2> /dev/null || true)
+
+          if [ "$digest" = "$current" ]; then
+            echo "latest already points to ${IMAGE_TAG}."
+            exit 0
+          fi
+
+          aws ecr put-image --repository-name "$ECR_REPOSITORY" --image-tag latest \
+            --image-manifest "$(jq -r '.imageManifest' <<< "$image")" \
+            --image-manifest-media-type "$(jq -r '.imageManifestMediaType' <<< "$image")" > /dev/null
+
+      - name: Summary
+        if: always()
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "### Deploy ${JOB_STATUS}"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`${IMAGE:-n/a}\` |"
+            echo "| Host | \`${EC2_INSTANCE_ID:-n/a}\` |"
+            echo "| API | ${API_URL:-n/a} |"
+          } >> "$GITHUB_STEP_SUMMARY"

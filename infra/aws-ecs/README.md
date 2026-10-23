@@ -1,6 +1,6 @@
-# Callsign infrastructure
+# Callsign on ECS Fargate
 
-Terraform for running `callsign-server` on AWS. The dashboard (`app.callsign.im`) and the website (`callsign.im`) are deployed on Vercel and are not managed here. DNS for `callsign.im` stays at Namecheap unless you point Terraform at a Route 53 zone.
+Terraform for running `callsign-server` on AWS with managed, horizontally scalable services. For a single, much cheaper machine, see [`infra/aws-ec2`](../aws-ec2). The dashboard (`app.callsign.im`) and the website (`callsign.im`) are deployed on Vercel and are not managed here. DNS for `callsign.im` stays at Namecheap unless you point Terraform at a Route 53 zone.
 
 ## Architecture
 
@@ -91,7 +91,11 @@ gh api -X PUT "repos/{owner}/{repo}/environments/production" > /dev/null
 terraform output -json github_actions_variables \
   | jq -r 'to_entries[] | [.key, .value] | @tsv' \
   | while IFS=$'\t' read -r name value; do gh variable set "$name" --env production --body "$value"; done
+
+gh variable set DEPLOY_TARGET --body ecs
 ```
+
+`DEPLOY_TARGET` is a repository variable that picks which deploy workflow runs, so only one stack receives each release.
 
 If the environment restricts which branches and tags can deploy, allow `v*` tags.
 

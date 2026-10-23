@@ -1,0 +1,6 @@
+{$API_DOMAIN} {
+	reverse_proxy api:8080 {
+		# Holds requests while the API container restarts during a deploy.
+		lb_try_duration 30s
+	}
+}

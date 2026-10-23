@@ -1,0 +1,28 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - unzip
+
+swap:
+  filename: /swapfile
+  size: 2G
+
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {"log-driver": "local"}
+  - path: /etc/callsign.env
+    content: |
+      AWS_REGION=${aws_region}
+      CALLSIGN_ENVIRONMENT_PARAMETER=${environment_param}
+      CALLSIGN_BACKUP_BUCKET=${backup_bucket}
+  - path: /usr/local/sbin/callsign-bootstrap
+    permissions: "0755"
+    encoding: b64
+    content: ${bootstrap_script}
+
+runcmd:
+  - [/usr/local/sbin/callsign-bootstrap, "${data_volume_id}"]

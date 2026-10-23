@@ -26,6 +26,7 @@ defaults:
 jobs:
   deploy:
     name: Deploy to ${{ inputs.environment || 'production' }}
+    if: vars.DEPLOY_TARGET == 'ecs'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: ${{ inputs.environment || 'production' }}

@@ -1,0 +1,34 @@
+# Copy to terraform.tfvars and adjust. Every variable is documented in variables.tf.
+
+aws_region  = "us-east-1"
+environment = "production"
+
+github_repository = "your-org/callsign-server"
+
+# Domains. DNS stays at your provider; Terraform lists the records to add.
+domain_name   = "callsign.im"
+api_subdomain = "api"
+# app_url  = "https://app.callsign.im"
+# site_url = "https://callsign.im"
+
+# Host. Pin the zone after the first apply (see `terraform output availability_zone`).
+instance_type    = "t4g.small"
+# availability_zone = "us-east-1a"
+root_volume_size = 20
+data_volume_size = 20
+
+# Backups.
+backup_retention_days    = 30
+snapshot_retention_count = 7
+
+# Cost alerts, before credits.
+monthly_budget      = 30
+budget_alert_emails = ["ops@example.com"]
+
+# Email. To use another SMTP provider instead of SES:
+# enable_ses = false
+# smtp_url   = "smtps://user:password@smtp.example.com:465"
+# mail_from  = "Callsign <no-reply@callsign.im>"
+
+# Set to false if the account already has a GitHub Actions OIDC provider.
+create_github_oidc_provider = true
