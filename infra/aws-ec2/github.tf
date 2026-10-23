@@ -2,6 +2,7 @@ locals {
   github_oidc_url          = "https://token.actions.githubusercontent.com"
   github_oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
   github_environment       = coalesce(var.github_environment, var.environment)
+  github_subject_prefix    = coalesce(var.github_subject_prefix, "repo:${var.github_repository}")
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -36,7 +37,7 @@ data "aws_iam_policy_document" "github_deploy_assume" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:${local.github_environment}"]
+      values   = ["${local.github_subject_prefix}:environment:${local.github_environment}"]
     }
   }
 }

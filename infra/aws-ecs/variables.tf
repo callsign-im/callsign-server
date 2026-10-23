@@ -383,6 +383,17 @@ variable "github_repository" {
   }
 }
 
+variable "github_subject_prefix" {
+  description = "Prefix of the OIDC subject GitHub issues for github_repository. Repositories with immutable subjects use repo:<owner>@<owner id>/<name>@<repository id>; get it with `gh api repos/<owner>/<name>/actions/oidc/customization/sub --jq .sub_claim_prefix`. Defaults to repo:<github_repository>."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.github_subject_prefix == null || can(regex("^repo:", var.github_subject_prefix))
+    error_message = "github_subject_prefix must start with repo:."
+  }
+}
+
 variable "github_environment" {
   description = "GitHub environment whose jobs may assume the deploy role. Defaults to the value of environment."
   type        = string

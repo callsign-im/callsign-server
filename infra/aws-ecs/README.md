@@ -59,6 +59,8 @@ cp terraform.tfvars.example terraform.tfvars  # set github_repository and review
 terraform init
 ```
 
+Newer GitHub repositories sign Actions tokens with immutable subjects. If `gh api repos/<owner>/<name>/actions/oidc/customization/sub` reports `"use_immutable_subject": true`, also set `github_subject_prefix` to its `sub_claim_prefix`.
+
 ### 3. Issue the certificate and verify the domain
 
 The HTTPS listener can't be created until ACM has issued the certificate. ACM won't issue it until its validation record exists in DNS. So create the certificate and the SES identity first:

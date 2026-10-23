@@ -62,6 +62,8 @@ cp terraform.tfvars.example terraform.tfvars  # set github_repository and budget
 terraform init
 ```
 
+Newer GitHub repositories sign Actions tokens with immutable subjects. If `gh api repos/<owner>/<name>/actions/oidc/customization/sub` reports `"use_immutable_subject": true`, also set `github_subject_prefix` to its `sub_claim_prefix`.
+
 ### 3. Apply
 
 ```sh

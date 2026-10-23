@@ -4,6 +4,9 @@ aws_region  = "us-east-1"
 environment = "production"
 
 github_repository = "your-org/callsign-server"
+# Newer repositories sign Actions tokens with immutable subjects. Get the prefix with:
+#   gh api repos/your-org/callsign-server/actions/oidc/customization/sub --jq .sub_claim_prefix
+# github_subject_prefix = "repo:your-org@123456/callsign-server@7890123"
 
 # Domains. DNS stays at Namecheap unless route53_zone_id is set.
 domain_name   = "callsign.im"
