@@ -16,7 +16,7 @@ import { ownerRoutes } from "./routes/owner.ts";
 import { publicRoutes } from "./routes/public.ts";
 import { registrationRoutes } from "./routes/registration.ts";
 
-const webOrigin = new URL(config.WEB_URL).origin;
+const appOrigin = new URL(config.APP_URL).origin;
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -43,8 +43,10 @@ export function createApp() {
     "/v1/*",
     cors({
       origin: (origin, c) => {
-        if (origin === webOrigin) return origin;
-        const open = ["/v1/agent/", "/v1/register"].some((p) => c.req.path.startsWith(p));
+        if (origin === appOrigin) return origin;
+        const open = ["/v1/agent/", "/v1/register", "/v1/handles/"].some((p) =>
+          c.req.path.startsWith(p),
+        );
         return open ? "*" : null;
       },
       credentials: true,

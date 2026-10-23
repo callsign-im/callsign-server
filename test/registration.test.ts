@@ -12,7 +12,7 @@ const app = createApp();
 function json(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
   return app.request(path, {
     method,
-    headers: { "content-type": "application/json", origin: "http://localhost:3000", ...headers },
+    headers: { "content-type": "application/json", origin: "http://localhost:3001", ...headers },
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
 }

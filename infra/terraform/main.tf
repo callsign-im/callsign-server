@@ -21,7 +21,8 @@ locals {
 
   api_domain_name = "${var.api_subdomain}.${var.domain_name}"
   api_url         = "https://${local.api_domain_name}"
-  web_url         = coalesce(var.web_url, "https://${var.domain_name}")
+  app_url         = coalesce(var.app_url, "https://app.${var.domain_name}")
+  site_url        = coalesce(var.site_url, "https://${var.domain_name}")
   mail_from       = coalesce(var.mail_from, "Callsign <no-reply@${var.domain_name}>")
 
   manage_dns = var.route53_zone_id != null

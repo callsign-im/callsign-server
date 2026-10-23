@@ -47,7 +47,7 @@ export function maskEmail(email: string): string {
 }
 
 function approvalUrl(token: string): string {
-  const url = new URL("/claim", config.WEB_URL);
+  const url = new URL("/claim", config.APP_URL);
   url.searchParams.set("token", token);
   return url.toString();
 }

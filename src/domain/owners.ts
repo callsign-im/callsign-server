@@ -29,7 +29,7 @@ export async function requestLogin(rawEmail: string, ip: string): Promise<void> 
   await rateLimit(`login-email:${email}`, 5, 900);
 
   const token = randomToken();
-  const url = new URL("/auth/verify", config.WEB_URL);
+  const url = new URL("/auth/verify", config.APP_URL);
   url.searchParams.set("token", token);
 
   await db.transaction(async (tx) => {

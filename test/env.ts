@@ -7,6 +7,7 @@ export const testEnv = {
   SMTP_URL: process.env.TEST_SMTP_URL ?? "smtp://localhost:1025",
   MAILPIT_URL: process.env.TEST_MAILPIT_URL ?? "http://localhost:8025",
   PUBLIC_API_URL: "http://localhost:8080",
-  WEB_URL: "http://localhost:3000",
+  APP_URL: "http://localhost:3001",
+  SITE_URL: "http://localhost:3000",
   ENCRYPTION_KEY: "nG3BpYl+rMlnT/vTjRklnDQWbqQuaDUYDEZ4PJl5oII=",
 };

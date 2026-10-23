@@ -37,8 +37,14 @@ variable "api_subdomain" {
   default     = "api"
 }
 
-variable "web_url" {
-  description = "URL of the web frontend, exposed to the app as WEB_URL. Defaults to https://<domain_name>."
+variable "app_url" {
+  description = "URL of the dashboard, exposed to the app as APP_URL. Defaults to https://app.<domain_name>."
+  type        = string
+  default     = null
+}
+
+variable "site_url" {
+  description = "URL of the website, exposed to the app as SITE_URL. Defaults to https://<domain_name>."
   type        = string
   default     = null
 }

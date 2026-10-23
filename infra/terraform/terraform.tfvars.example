@@ -8,7 +8,8 @@ github_repository = "your-org/callsign-server"
 # Domains. DNS stays at Namecheap unless route53_zone_id is set.
 domain_name   = "callsign.im"
 api_subdomain = "api"
-# web_url         = "https://callsign.im"
+# app_url         = "https://app.callsign.im"
+# site_url        = "https://callsign.im"
 # route53_zone_id = "Z0123456789ABCDEFGHIJ"
 
 # Cost versus availability.

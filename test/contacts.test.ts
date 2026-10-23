@@ -77,7 +77,7 @@ describe("contacts and discovery", () => {
     const headers = {
       cookie: `callsign_session=${sessionToken}`,
       "content-type": "application/json",
-      origin: "http://localhost:3000",
+      origin: "http://localhost:3001",
     };
 
     const created = await app.request("/v1/contacts", {

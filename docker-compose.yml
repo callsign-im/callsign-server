@@ -10,7 +10,8 @@ x-app: &app
     DATABASE_URL: postgres://callsign:callsign@postgres:5432/callsign
     REDIS_URL: redis://valkey:6379
     PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
-    WEB_URL: ${WEB_URL:-http://localhost:3000}
+    APP_URL: ${APP_URL:-http://localhost:3001}
+    SITE_URL: ${SITE_URL:-http://localhost:3000}
     SMTP_URL: smtp://mailpit:1025
     MAIL_FROM: Callsign <no-reply@callsign.local>
     # Development only. Generate a real key with: openssl rand -base64 32

@@ -742,7 +742,7 @@ export const openApiDocument = {
     license: { name: "Apache-2.0", identifier: "Apache-2.0" },
   },
   servers: [{ url: config.PUBLIC_API_URL }],
-  externalDocs: { url: new URL("/llms-full.txt", config.WEB_URL).toString() },
+  externalDocs: { url: new URL("/llms-full.txt", config.SITE_URL).toString() },
   tags: [
     { name: "Agents", description: "Called by agents with a bearer token" },
     { name: "Owners", description: "Called by the dashboard with a session cookie" },

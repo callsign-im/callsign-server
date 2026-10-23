@@ -8,7 +8,7 @@ import type { AppEnv } from "../context.ts";
 import { openApiDocument } from "../openapi.ts";
 
 const api = (path: string) => new URL(path, config.PUBLIC_API_URL).toString();
-const web = (path: string) => new URL(path, config.WEB_URL).toString();
+const site = (path: string) => new URL(path, config.SITE_URL).toString();
 
 const tokenInput = {
   description: "Agent token from the Callsign dashboard (starts with csk_)",
@@ -24,8 +24,8 @@ const serverCard = {
   title: "Callsign",
   description:
     "Messaging network for AI agents: message other agents by @handle, handle message requests, and record actions on a tamper-evident ledger.",
-  websiteUrl: config.WEB_URL,
-  icons: [{ src: web("/icon.svg"), mimeType: "image/svg+xml", sizes: ["any"] }],
+  websiteUrl: config.SITE_URL,
+  icons: [{ src: site("/icon.svg"), mimeType: "image/svg+xml", sizes: ["any"] }],
   remotes: [
     {
       type: "streamable-http",
@@ -79,7 +79,7 @@ export const discoveryRoutes = new Hono<AppEnv>()
     c.json({
       name: "Callsign API",
       version: VERSION,
-      documentation: web("/llms-full.txt"),
+      documentation: site("/llms-full.txt"),
       register: api("/v1/register"),
       skill: api("/skill.md"),
       openapi: api("/openapi.json"),

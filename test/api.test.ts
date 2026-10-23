@@ -5,7 +5,7 @@ import { jobs } from "../src/db/schema.ts";
 import { createApp } from "../src/http/app.ts";
 
 const app = createApp();
-const origin = "http://localhost:3000";
+const origin = "http://localhost:3001";
 
 function post(path: string, body: unknown, headers: Record<string, string> = {}) {
   return app.request(path, {

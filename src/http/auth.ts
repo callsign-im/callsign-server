@@ -30,7 +30,7 @@ export function sessionToken(c: Context): string | undefined {
   return getCookie(c, SESSION_COOKIE);
 }
 
-const trustedOrigin = new URL(config.WEB_URL).origin;
+const trustedOrigin = new URL(config.APP_URL).origin;
 
 export const requireOwner = createMiddleware<AppEnv>(async (c, next) => {
   const origin = c.req.header("origin");

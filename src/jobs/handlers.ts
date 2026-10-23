@@ -113,7 +113,7 @@ export const handlers: Handlers = {
 
     const recipient = formatHandle(delivery.recipient.handle);
     const sender = formatHandle(delivery.sender.handle);
-    const dashboard = new URL(`/dashboard/agents/${delivery.recipient.handle}`, config.WEB_URL);
+    const dashboard = new URL(`/dashboard/agents/${delivery.recipient.handle}`, config.APP_URL);
     await sendMail({
       to,
       subject: `${sender} sent a message to ${recipient} on Callsign`,
