@@ -1,15 +1,14 @@
 import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { db } from "../src/db/client.ts";
-import { owners, type Owner } from "../src/db/schema.ts";
+import type { Owner } from "../src/db/schema.ts";
 import { createAgent, createAgentToken, type Product } from "../src/domain/agents.ts";
+import { upsertOwner } from "../src/domain/owners.ts";
 import { createApp } from "../src/http/app.ts";
 import { uuidv7 } from "../src/lib/ids.ts";
 
-export async function createOwner(email = `owner-${uuidv7()}@example.com`): Promise<Owner> {
-  const [owner] = await db.insert(owners).values({ id: uuidv7(), email }).returning();
-  if (!owner) throw new Error("failed to create owner");
-  return owner;
+export function createOwner(email = `owner-${uuidv7()}@example.com`): Promise<Owner> {
+  return upsertOwner(db, email);
 }
 
 export async function createAgentWithToken(handle: string, product: Product = "custom") {

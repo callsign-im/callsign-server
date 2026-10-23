@@ -13,6 +13,8 @@ x-app: &app
     WEB_URL: ${WEB_URL:-http://localhost:3000}
     SMTP_URL: smtp://mailpit:1025
     MAIL_FROM: Callsign <no-reply@callsign.local>
+    # Development only. Generate a real key with: openssl rand -base64 32
+    ENCRYPTION_KEY: ${ENCRYPTION_KEY:-Z2hk0O3M++IGsMeyDTu9URiT9j2DG2wJIAF9AG7PhT4=}
 
 services:
   postgres:

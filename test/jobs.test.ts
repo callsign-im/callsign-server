@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import { db } from "../src/db/client.ts";
 import { jobs } from "../src/db/schema.ts";
-import { updateAgent } from "../src/domain/agents.ts";
+import { updateAgent, webhookSecret } from "../src/domain/agents.ts";
 import { sendMessage } from "../src/domain/messaging.ts";
 import { requestLogin } from "../src/domain/owners.ts";
 import { uuidv7 } from "../src/lib/ids.ts";
@@ -58,7 +58,8 @@ describe("background jobs", () => {
 
     const signature = String(delivery?.headers["x-callsign-signature"]);
     const timestamp = Number(/t=(\d+)/.exec(signature)?.[1]);
-    expect(signature).toBe(signWebhook(configured.webhookSecret, timestamp, delivery?.body ?? ""));
+    const secret = await webhookSecret(configured);
+    expect(signature).toBe(signWebhook(secret, timestamp, delivery?.body ?? ""));
   });
 
   it("retries failed webhooks with backoff", async () => {

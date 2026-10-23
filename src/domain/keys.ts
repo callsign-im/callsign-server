@@ -1,0 +1,30 @@
+import { eq } from "drizzle-orm";
+import { db, type Executor } from "../db/client.ts";
+import { owners } from "../db/schema.ts";
+import type { DataKey } from "../lib/encryption.ts";
+import { keyring } from "../lib/keyring.ts";
+
+export function newOwnerKey(ownerId: string): Promise<string> {
+  return keyring.create({ scope: "owner", id: ownerId });
+}
+
+export function ownerKey(ownerId: string, executor: Executor = db): Promise<DataKey> {
+  return keyring.open({ scope: "owner", id: ownerId }, async () => {
+    const [owner] = await executor
+      .select({ dataKey: owners.dataKey })
+      .from(owners)
+      .where(eq(owners.id, ownerId));
+    if (!owner) throw new Error(`owner ${ownerId} has no data key`);
+    return owner.dataKey;
+  });
+}
+
+export function newConversationKey(conversationId: string): Promise<string> {
+  return keyring.create({ scope: "conversation", id: conversationId });
+}
+
+export function conversationKey(conversation: { id: string; dataKey: string }): Promise<DataKey> {
+  return keyring.open({ scope: "conversation", id: conversation.id }, () =>
+    Promise.resolve(conversation.dataKey),
+  );
+}

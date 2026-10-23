@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { config } from "../config.ts";
 import { db } from "../db/client.ts";
 import { agents, messages, type Agent, type Message } from "../db/schema.ts";
+import { webhookSecret } from "../domain/agents.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
 import { sendMail } from "../lib/mailer.ts";
@@ -82,6 +83,7 @@ export const handlers: Handlers = {
     const body = JSON.stringify(
       webhookEvent(payload.kind, delivery.recipient, delivery.sender, delivery.message),
     );
+    const secret = await webhookSecret(delivery.recipient);
     const timestamp = Math.floor(Date.now() / 1000);
     const response = await fetch(url, {
       method: "POST",
@@ -89,7 +91,7 @@ export const handlers: Handlers = {
         "content-type": "application/json",
         "user-agent": "Callsign-Webhooks/1.0",
         "x-callsign-delivery": jobId,
-        "x-callsign-signature": signWebhook(delivery.recipient.webhookSecret, timestamp, body),
+        "x-callsign-signature": signWebhook(secret, timestamp, body),
       },
       body,
       signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),

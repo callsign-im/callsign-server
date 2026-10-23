@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -12,14 +13,22 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { Sealed } from "../lib/encryption.ts";
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 const createdAt = () => timestamptz("created_at").notNull().defaultNow();
 const counter = (name: string) => bigint(name, { mode: "number" });
 
+const sealed = customType<{ data: Sealed; driverData: string }>({
+  dataType: () => "text",
+  toDriver: (value) => value.ciphertext,
+  fromDriver: (value) => new Sealed(value),
+});
+
 export const owners = pgTable("owners", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull().unique(),
+  dataKey: text("data_key").notNull(),
   createdAt: createdAt(),
 });
 
@@ -57,10 +66,10 @@ export const agents = pgTable(
     displayName: text("display_name").notNull(),
     product: text("product").notNull(),
     webhookUrl: text("webhook_url"),
-    webhookSecret: text("webhook_secret").notNull(),
+    webhookSecret: sealed("webhook_secret").notNull(),
     notifyEmail: text("notify_email"),
     discoverable: boolean("discoverable").notNull().default(true),
-    rules: text("rules"),
+    rules: sealed("rules"),
     ledgerSeq: counter("ledger_seq").notNull().default(0),
     ledgerHead: text("ledger_head"),
     lastSeenAt: timestamptz("last_seen_at"),
@@ -96,9 +105,9 @@ export const contacts = pgTable(
     agentId: uuid("agent_id")
       .notNull()
       .references(() => agents.id),
-    name: text("name").notNull(),
-    notes: text("notes"),
-    rules: text("rules"),
+    name: sealed("name").notNull(),
+    notes: sealed("notes"),
+    rules: sealed("rules"),
     createdAt: createdAt(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
@@ -112,6 +121,7 @@ export const conversations = pgTable("conversations", {
   createdBy: uuid("created_by")
     .notNull()
     .references(() => agents.id),
+  dataKey: text("data_key").notNull(),
   lastSeq: counter("last_seq").notNull().default(0),
   lastMessageAt: timestamptz("last_message_at"),
   createdAt: createdAt(),
@@ -148,7 +158,7 @@ export const messages = pgTable(
     senderId: uuid("sender_id")
       .notNull()
       .references(() => agents.id),
-    body: text("body").notNull(),
+    body: sealed("body").notNull(),
     idempotencyKey: text("idempotency_key"),
     createdAt: createdAt(),
   },
@@ -171,7 +181,7 @@ export const ledgerEvents = pgTable(
     type: text("type").notNull(),
     actor: text("actor").notNull(),
     conversationId: uuid("conversation_id"),
-    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    data: sealed("data").notNull(),
     prevHash: text("prev_hash"),
     hash: text("hash").notNull(),
     createdAt: timestamptz("created_at").notNull(),

@@ -3,6 +3,7 @@ import { config } from "../../config.ts";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import {
+  agentRules,
   createAgent,
   createAgentToken,
   getOwnedAgent,
@@ -81,7 +82,7 @@ export const ownerRoutes = new Hono<AppEnv>()
   .get("/v1/agents/:handle/instructions", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     return c.json({
-      instructions: customInstructions(agent, mcpUrl()),
+      instructions: customInstructions(agent, await agentRules(agent), mcpUrl()),
       memoryNote: memoryNote(agent.handle),
       skillUrl: new URL("/skill.md", config.PUBLIC_API_URL).toString(),
     });
@@ -92,21 +93,21 @@ export const ownerRoutes = new Hono<AppEnv>()
   })
   .get("/v1/agents", async (c) => {
     const agents = await listOwnerAgents(c.get("owner").id);
-    return c.json({ agents: agents.map(ownerView) });
+    return c.json({ agents: await Promise.all(agents.map(ownerView)) });
   })
   .post("/v1/agents", async (c) => {
     const input = await parseBody(c, createAgentBody);
     const agent = await createAgent(c.get("owner"), input);
-    return c.json({ agent: ownerView(agent), mcpUrl: mcpUrl() }, 201);
+    return c.json({ agent: await ownerView(agent), mcpUrl: mcpUrl() }, 201);
   })
   .get("/v1/agents/:handle", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
-    return c.json({ agent: ownerView(agent), mcpUrl: mcpUrl() });
+    return c.json({ agent: await ownerView(agent), mcpUrl: mcpUrl() });
   })
   .patch("/v1/agents/:handle", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     const updated = await updateAgent(agent, await parseBody(c, updateAgentBody));
-    return c.json({ agent: ownerView(updated) });
+    return c.json({ agent: await ownerView(updated) });
   })
   .get("/v1/agents/:handle/tokens", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
@@ -149,12 +150,12 @@ export const ownerRoutes = new Hono<AppEnv>()
   .get("/v1/agents/:handle/ledger", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     const query = parseWith(ledgerQuery, c.req.query());
-    const events = await listLedger(agent.id, query);
+    const events = await listLedger(agent, query);
     return c.json({ events: events.map((e) => serializeLedgerEvent(e, agent.handle)) });
   })
   .get("/v1/agents/:handle/ledger/verify", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
-    return c.json(await verifyLedger(agent.id));
+    return c.json(await verifyLedger(agent));
   })
   .get("/v1/activity", async (c) => {
     const query = parseWith(activityQuery, c.req.query());

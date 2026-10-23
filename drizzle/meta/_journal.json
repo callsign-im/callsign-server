@@ -29,6 +29,13 @@
       "when": 1792731014958,
       "tag": "0003_contacts_and_discovery",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792756685658,
+      "tag": "0004_encrypt_stored_data",
+      "breakpoints": true
     }
   ]
 }

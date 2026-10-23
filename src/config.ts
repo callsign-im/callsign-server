@@ -12,6 +12,8 @@ const schema = z.object({
   WEB_URL: z.url().default("http://localhost:3000"),
   SMTP_URL: z.string().default("smtp://localhost:1025"),
   MAIL_FROM: z.string().default("Callsign <no-reply@callsign.local>"),
+  KMS_KEY_ID: z.string().min(1).optional(),
+  ENCRYPTION_KEY: z.base64().optional(),
 });
 
 export type Config = z.infer<typeof schema>;

@@ -8,6 +8,7 @@ import { randomToken, sha256 } from "../lib/crypto.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { AppError } from "./errors.ts";
+import { newOwnerKey } from "./keys.ts";
 
 const LOGIN_TOKEN_TTL_MS = 15 * 60_000;
 export const SESSION_TTL_MS = 30 * 86_400_000;
@@ -66,12 +67,20 @@ export async function verifyLogin(
   });
 }
 
+async function findOwnerByEmail(executor: Executor, email: string): Promise<Owner | undefined> {
+  const [owner] = await executor.select().from(owners).where(eq(owners.email, email));
+  return owner;
+}
+
 export async function upsertOwner(executor: Executor, email: string): Promise<Owner> {
+  const existing = await findOwnerByEmail(executor, email);
+  if (existing) return existing;
+  const id = uuidv7();
   await executor
     .insert(owners)
-    .values({ id: uuidv7(), email })
+    .values({ id, email, dataKey: await newOwnerKey(id) })
     .onConflictDoNothing({ target: owners.email });
-  const [owner] = await executor.select().from(owners).where(eq(owners.email, email));
+  const owner = await findOwnerByEmail(executor, email);
   if (!owner) throw new Error("owner upsert returned no row");
   return owner;
 }

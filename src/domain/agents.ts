@@ -10,6 +10,7 @@ import {
   type Owner,
 } from "../db/schema.ts";
 import { randomToken, sha256 } from "../lib/crypto.ts";
+import type { Sealed } from "../lib/encryption.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
@@ -20,6 +21,7 @@ import {
   normalizeHandle,
   type HandleStatus,
 } from "./handles.ts";
+import { ownerKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
 
 export const PRODUCTS = ["dots", "claude-duet", "grok-bot", "muse", "custom"] as const;
@@ -27,6 +29,9 @@ export type Product = (typeof PRODUCTS)[number];
 
 export const MAX_AGENTS_PER_OWNER = 25;
 const TOUCH_INTERVAL_MS = 60_000;
+
+const rulesContext = (agentId: string) => `agents.rules:${agentId}`;
+const secretContext = (agentId: string) => `agents.webhook_secret:${agentId}`;
 
 export async function findAgentByHandle(
   handle: string,
@@ -88,6 +93,8 @@ export async function createAgent(
     throw new AppError("forbidden", `Accounts can register up to ${MAX_AGENTS_PER_OWNER} agents.`);
   }
 
+  const id = uuidv7();
+  const webhookSecret = await newWebhookSecret(owner.id, id);
   try {
     const { agent, recorded } = await db.transaction(async (tx) => {
       if (await isAwaitingApproval(handle, tx)) {
@@ -99,12 +106,12 @@ export async function createAgent(
       const [agent] = await tx
         .insert(agents)
         .values({
-          id: uuidv7(),
+          id,
           ownerId: owner.id,
           handle,
           displayName: input.displayName?.trim() || handle,
           product: input.product,
-          webhookSecret: randomToken("whsec"),
+          webhookSecret,
         })
         .returning();
       if (!agent) throw new Error("agent insert returned no row");
@@ -125,6 +132,23 @@ export async function createAgent(
   }
 }
 
+export async function newWebhookSecret(
+  ownerId: string,
+  agentId: string,
+  executor: Executor = db,
+): Promise<Sealed> {
+  const key = await ownerKey(ownerId, executor);
+  return key.seal(randomToken("whsec"), secretContext(agentId));
+}
+
+export async function agentRules(agent: Agent): Promise<string | null> {
+  return (await ownerKey(agent.ownerId)).open(agent.rules, rulesContext(agent.id));
+}
+
+export async function webhookSecret(agent: Agent): Promise<string> {
+  return (await ownerKey(agent.ownerId)).open(agent.webhookSecret, secretContext(agent.id));
+}
+
 export type AgentSettings = {
   displayName?: string | undefined;
   webhookUrl?: string | null | undefined;
@@ -134,12 +158,15 @@ export type AgentSettings = {
 };
 
 export async function updateAgent(agent: Agent, settings: AgentSettings): Promise<Agent> {
+  const key = await ownerKey(agent.ownerId);
   const patch = {
     ...(settings.displayName !== undefined && { displayName: settings.displayName.trim() }),
     ...(settings.webhookUrl !== undefined && { webhookUrl: settings.webhookUrl }),
     ...(settings.notifyEmail !== undefined && { notifyEmail: settings.notifyEmail }),
     ...(settings.discoverable !== undefined && { discoverable: settings.discoverable }),
-    ...(settings.rules !== undefined && { rules: settings.rules?.trim() || null }),
+    ...(settings.rules !== undefined && {
+      rules: key.seal(settings.rules?.trim() || null, rulesContext(agent.id)),
+    }),
   };
   const fields = Object.keys(patch);
   if (fields.length === 0) return agent;
@@ -256,14 +283,15 @@ export function publicProfile(agent: Agent) {
   };
 }
 
-export function ownerView(agent: Agent) {
+export async function ownerView(agent: Agent) {
+  const key = await ownerKey(agent.ownerId);
   return {
     ...publicProfile(agent),
     webhookUrl: agent.webhookUrl,
-    webhookSecret: agent.webhookSecret,
+    webhookSecret: key.open(agent.webhookSecret, secretContext(agent.id)),
     notifyEmail: agent.notifyEmail,
     discoverable: agent.discoverable,
-    rules: agent.rules,
+    rules: key.open(agent.rules, rulesContext(agent.id)),
     lastSeenAt: agent.lastSeenAt?.toISOString() ?? null,
     ledgerEvents: agent.ledgerSeq,
     ledgerHead: agent.ledgerHead,

@@ -1,17 +1,20 @@
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { Hono, type Context } from "hono";
 import type { Agent } from "../../db/schema.ts";
+import { agentRules } from "../../domain/agents.ts";
 import { AppError } from "../../domain/errors.ts";
 import { logger } from "../../lib/logger.ts";
 import { buildMcpServer } from "../../mcp/server.ts";
 import { agentFromToken } from "../auth.ts";
 import { bearerToken, type AppEnv } from "../context.ts";
 
+type Session = { agent: Agent; rules: string | null };
+
 const handler = createMcpHandler(
   ({ authInfo }) => {
-    const agent = authInfo?.extra?.agent as Agent | undefined;
-    if (!agent) throw new Error("MCP request reached the server without an authenticated agent");
-    return buildMcpServer(agent);
+    const session = authInfo?.extra?.session as Session | undefined;
+    if (!session) throw new Error("MCP request reached the server without an authenticated agent");
+    return buildMcpServer(session.agent, session.rules);
   },
   {
     legacy: "stateless",
@@ -35,8 +38,9 @@ async function serve(c: Context, token: string | undefined) {
     if (error instanceof AppError) return rejected(c, error);
     throw error;
   }
+  const session: Session = { agent, rules: await agentRules(agent) };
   return handler.fetch(c.req.raw, {
-    authInfo: { token: "redacted", clientId: agent.id, scopes: ["agent"], extra: { agent } },
+    authInfo: { token: "redacted", clientId: agent.id, scopes: ["agent"], extra: { session } },
   });
 }
 

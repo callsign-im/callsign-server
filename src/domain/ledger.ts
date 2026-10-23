@@ -2,10 +2,12 @@ import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { db, type Executor, type Tx } from "../db/client.ts";
 import { agents, ledgerEvents, type Agent, type LedgerEvent } from "../db/schema.ts";
 import { canonicalJson, sha256 } from "../lib/crypto.ts";
+import type { DataKey } from "../lib/encryption.ts";
 import { publishToOwner } from "../lib/events.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { AppError } from "./errors.ts";
 import { formatHandle } from "./handles.ts";
+import { ownerKey } from "./keys.ts";
 
 export type LedgerEventType =
   | "agent.created"
@@ -27,7 +29,9 @@ export type Actor = "agent" | "owner" | "peer";
 
 export type LedgerAgent = Pick<Agent, "id" | "ownerId" | "handle">;
 
-export type RecordedEvent = { agent: LedgerAgent; event: LedgerEvent };
+export type LedgerEntry = Omit<LedgerEvent, "data"> & { data: Record<string, unknown> };
+
+export type RecordedEvent = { agent: LedgerAgent; event: LedgerEntry };
 
 type NewLedgerEvent = {
   type: LedgerEventType;
@@ -36,7 +40,22 @@ type NewLedgerEvent = {
   data: Record<string, unknown>;
 };
 
-export function hashLedgerEvent(event: Omit<LedgerEvent, "hash">): string {
+const dataContext = (eventId: string) => `ledger_events.data:${eventId}`;
+
+function openLedgerEvent(key: DataKey, event: LedgerEvent): LedgerEntry {
+  const data = JSON.parse(key.open(event.data, dataContext(event.id))) as Record<string, unknown>;
+  return { ...event, data };
+}
+
+function isIntact(key: DataKey, event: LedgerEvent): boolean {
+  try {
+    return hashLedgerEvent(openLedgerEvent(key, event)) === event.hash;
+  } catch {
+    return false;
+  }
+}
+
+export function hashLedgerEvent(event: Omit<LedgerEntry, "hash">): string {
   return sha256(
     canonicalJson({
       agentId: event.agentId,
@@ -76,8 +95,11 @@ export async function appendLedgerEvent(
     createdAt: new Date(),
   };
   const event = { ...unsigned, hash: hashLedgerEvent(unsigned) };
+  const key = await ownerKey(agent.ownerId, tx);
 
-  await tx.insert(ledgerEvents).values(event);
+  await tx
+    .insert(ledgerEvents)
+    .values({ ...event, data: key.seal(JSON.stringify(event.data), dataContext(event.id)) });
   await tx
     .update(agents)
     .set({ ledgerSeq: event.seq, ledgerHead: event.hash })
@@ -98,7 +120,7 @@ export async function broadcast(recorded: RecordedEvent[]): Promise<void> {
   );
 }
 
-export function serializeLedgerEvent(event: LedgerEvent, handle: string) {
+export function serializeLedgerEvent(event: LedgerEntry, handle: string) {
   return {
     id: event.id,
     agent: formatHandle(handle),
@@ -114,28 +136,31 @@ export function serializeLedgerEvent(event: LedgerEvent, handle: string) {
 }
 
 export async function listLedger(
-  agentId: string,
+  agent: LedgerAgent,
   options: { before?: number; limit: number },
   executor: Executor = db,
-): Promise<LedgerEvent[]> {
-  return executor
+): Promise<LedgerEntry[]> {
+  const key = await ownerKey(agent.ownerId, executor);
+  const events = await executor
     .select()
     .from(ledgerEvents)
     .where(
       and(
-        eq(ledgerEvents.agentId, agentId),
+        eq(ledgerEvents.agentId, agent.id),
         options.before === undefined ? undefined : lt(ledgerEvents.seq, options.before),
       ),
     )
     .orderBy(desc(ledgerEvents.seq))
     .limit(options.limit);
+  return events.map((event) => openLedgerEvent(key, event));
 }
 
 export async function listOwnerActivity(
   ownerId: string,
   options: { before?: Date; limit: number },
-): Promise<{ event: LedgerEvent; handle: string }[]> {
-  return db
+): Promise<{ event: LedgerEntry; handle: string }[]> {
+  const key = await ownerKey(ownerId);
+  const rows = await db
     .select({ event: ledgerEvents, handle: agents.handle })
     .from(ledgerEvents)
     .innerJoin(agents, eq(agents.id, ledgerEvents.agentId))
@@ -147,6 +172,7 @@ export async function listOwnerActivity(
     )
     .orderBy(desc(ledgerEvents.createdAt), desc(ledgerEvents.seq))
     .limit(options.limit);
+  return rows.map(({ event, handle }) => ({ event: openLedgerEvent(key, event), handle }));
 }
 
 export type LedgerVerification = {
@@ -158,7 +184,8 @@ export type LedgerVerification = {
 
 const VERIFY_BATCH = 500;
 
-export async function verifyLedger(agentId: string): Promise<LedgerVerification> {
+export async function verifyLedger(agent: LedgerAgent): Promise<LedgerVerification> {
+  const key = await ownerKey(agent.ownerId);
   let previous: string | null = null;
   let checked = 0;
 
@@ -166,15 +193,13 @@ export async function verifyLedger(agentId: string): Promise<LedgerVerification>
     const batch = await db
       .select()
       .from(ledgerEvents)
-      .where(and(eq(ledgerEvents.agentId, agentId), gt(ledgerEvents.seq, checked)))
+      .where(and(eq(ledgerEvents.agentId, agent.id), gt(ledgerEvents.seq, checked)))
       .orderBy(asc(ledgerEvents.seq))
       .limit(VERIFY_BATCH);
 
     for (const event of batch) {
       const intact =
-        event.seq === checked + 1 &&
-        event.prevHash === previous &&
-        hashLedgerEvent(event) === event.hash;
+        event.seq === checked + 1 && event.prevHash === previous && isIntact(key, event);
       if (!intact) {
         return { valid: false, events: checked, head: previous, brokenAtSeq: event.seq };
       }
@@ -184,11 +209,11 @@ export async function verifyLedger(agentId: string): Promise<LedgerVerification>
     if (batch.length < VERIFY_BATCH) break;
   }
 
-  const [agent] = await db
+  const [head] = await db
     .select({ seq: agents.ledgerSeq, head: agents.ledgerHead })
     .from(agents)
-    .where(eq(agents.id, agentId));
-  const consistent = agent?.seq === checked && agent.head === previous;
+    .where(eq(agents.id, agent.id));
+  const consistent = head?.seq === checked && head.head === previous;
 
   return {
     valid: consistent,

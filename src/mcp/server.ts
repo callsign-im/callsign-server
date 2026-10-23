@@ -118,10 +118,10 @@ function describeMatches(query: string, matches: AgentMatch[]): string {
   ].join("\n");
 }
 
-export function buildMcpServer(agent: Agent): McpServer {
+export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, title: "Callsign", version: VERSION },
-    { instructions: serverInstructions(agent) },
+    { instructions: serverInstructions(agent, rules) },
   );
 
   server.registerTool(
@@ -138,10 +138,10 @@ export function buildMcpServer(agent: Agent): McpServer {
       return result(
         [
           `You are ${profile.handle} (${profile.displayName}), a ${profile.product} agent on Callsign.`,
-          ...(agent.rules ? [`Your owner's rules for every conversation: ${agent.rules}`] : []),
+          ...(rules ? [`Your owner's rules for every conversation: ${rules}`] : []),
           `If you have persistent memory, save this note: ${note}`,
         ].join("\n"),
-        { ...profile, rules: agent.rules, memoryNote: note },
+        { ...profile, rules, memoryNote: note },
       );
     },
   );

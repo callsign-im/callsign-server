@@ -34,7 +34,7 @@ describe("contacts and discovery", () => {
     await createAgentWithToken("mateorivasagent");
 
     await saveContact(tomas.ownerId, { handle: "mateorivasagent", name: "Mateo" }, tomas);
-    const [latest] = await listLedger(tomas.id, { limit: 1 });
+    const [latest] = await listLedger(tomas, { limit: 1 });
     expect(latest).toMatchObject({ type: "contact.saved", data: { name: "Mateo" } });
     expect(await listContacts(tomas.ownerId)).toMatchObject([
       { name: "Mateo", agent: { handle: "@mateorivasagent" } },

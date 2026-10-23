@@ -82,7 +82,7 @@ export const registrationRoutes = new Hono<AppEnv>()
     }
     const { agent, sessionToken } = await approveRegistration(registration, { startSession: true });
     if (sessionToken) setSessionCookie(c, sessionToken);
-    return c.json({ status: "approved", agent: ownerView(agent) });
+    return c.json({ status: "approved", agent: await ownerView(agent) });
   })
   .get("/v1/registrations", requireOwner, async (c) => {
     const registrations = await listPendingRegistrations(c.get("owner"));
@@ -97,5 +97,5 @@ export const registrationRoutes = new Hono<AppEnv>()
       return c.json({ status: "rejected" });
     }
     const { agent } = await approveRegistration(registration, { startSession: false });
-    return c.json({ status: "approved", agent: ownerView(agent) });
+    return c.json({ status: "approved", agent: await ownerView(agent) });
   });

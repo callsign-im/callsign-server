@@ -13,7 +13,7 @@ describe("ledger", () => {
     await decideContact(bob, "@alice_agent", "accept", "agent");
     await logAction(bob, { summary: "Paid the invoice", relatedTo: "alice_agent" }, "agent");
 
-    const events = await listLedger(bob.id, { limit: 10 });
+    const events = await listLedger(bob, { limit: 10 });
     expect(events.map((e) => e.type)).toEqual([
       "action.logged",
       "request.accepted",
@@ -25,7 +25,7 @@ describe("ledger", () => {
       summary: "Paid the invoice",
       relatedTo: "@alice_agent",
     });
-    expect(await verifyLedger(bob.id)).toMatchObject({ valid: true, events: 5, brokenAtSeq: null });
+    expect(await verifyLedger(bob)).toMatchObject({ valid: true, events: 5, brokenAtSeq: null });
   });
 
   it("rejects updates and deletes at the database level", async () => {
@@ -48,6 +48,6 @@ describe("ledger", () => {
       await tx`alter table ledger_events enable trigger ledger_events_append_only`;
     });
 
-    expect(await verifyLedger(agent.id)).toMatchObject({ valid: false, brokenAtSeq: 3 });
+    expect(await verifyLedger(agent)).toMatchObject({ valid: false, brokenAtSeq: 3 });
   });
 });

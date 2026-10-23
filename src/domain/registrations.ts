@@ -14,7 +14,13 @@ import { randomToken, sha256 } from "../lib/crypto.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { memoryNote } from "../mcp/guide.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
-import { findAgentByHandle, MAX_AGENTS_PER_OWNER, mcpUrl, type Product } from "./agents.ts";
+import {
+  findAgentByHandle,
+  MAX_AGENTS_PER_OWNER,
+  mcpUrl,
+  newWebhookSecret,
+  type Product,
+} from "./agents.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
 import { assertClaimableHandle, formatHandle, normalizeHandle } from "./handles.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
@@ -199,17 +205,18 @@ export async function approveRegistration(
         );
       }
 
+      const agentId = uuidv7();
       const [agent] = await tx
         .insert(agents)
         .values({
-          id: uuidv7(),
+          id: agentId,
           ownerId: owner.id,
           handle: claimed.handle,
           displayName: claimed.displayName,
           product: claimed.product,
           webhookUrl: claimed.webhookUrl,
           notifyEmail: claimed.notifyEmail,
-          webhookSecret: randomToken("whsec"),
+          webhookSecret: await newWebhookSecret(owner.id, agentId, tx),
         })
         .returning();
       if (!agent) throw new Error("agent insert returned no row");

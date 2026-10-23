@@ -23,6 +23,7 @@
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.1156.0",
     "@hono/node-server": "^2.1.5",
     "@modelcontextprotocol/hono": "^2.0.2",
     "@modelcontextprotocol/server": "^2.3.1",

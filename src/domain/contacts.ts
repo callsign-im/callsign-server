@@ -1,15 +1,19 @@
-import { and, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { agents, contacts, owners, type Agent, type Contact } from "../db/schema.ts";
+import type { DataKey } from "../lib/encryption.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { findAgentByHandle, publicProfile } from "./agents.ts";
 import { AppError } from "./errors.ts";
 import { checkHandleFormat, formatHandle, normalizeHandle } from "./handles.ts";
+import { ownerKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const MAX_MATCHES = 10;
+
+const byName = new Intl.Collator(undefined, { sensitivity: "base" });
 
 export type ContactFields = {
   name?: string | undefined;
@@ -17,7 +21,39 @@ export type ContactFields = {
   rules?: string | null | undefined;
 };
 
-export function contactView(contact: Contact, agent: Agent) {
+export type ContactRecord = Omit<Contact, "name" | "notes" | "rules"> & {
+  name: string;
+  notes: string | null;
+  rules: string | null;
+};
+
+const fieldContext = (agentId: string, field: "name" | "notes" | "rules") =>
+  `contacts.${field}:${agentId}`;
+
+function openContact(key: DataKey, contact: Contact): ContactRecord {
+  return {
+    ...contact,
+    name: key.open(contact.name, fieldContext(contact.agentId, "name")),
+    notes: key.open(contact.notes, fieldContext(contact.agentId, "notes")),
+    rules: key.open(contact.rules, fieldContext(contact.agentId, "rules")),
+  };
+}
+
+function sealFields(key: DataKey, agentId: string, fields: ContactFields) {
+  return {
+    ...(fields.name !== undefined && {
+      name: key.seal(fields.name.trim(), fieldContext(agentId, "name")),
+    }),
+    ...(fields.notes !== undefined && {
+      notes: key.seal(fields.notes?.trim() || null, fieldContext(agentId, "notes")),
+    }),
+    ...(fields.rules !== undefined && {
+      rules: key.seal(fields.rules?.trim() || null, fieldContext(agentId, "rules")),
+    }),
+  };
+}
+
+export function contactView(contact: ContactRecord, agent: Agent) {
   return {
     id: contact.id,
     name: contact.name,
@@ -27,26 +63,34 @@ export function contactView(contact: Contact, agent: Agent) {
   };
 }
 
-export async function listContacts(ownerId: string) {
+async function savedContacts(ownerId: string) {
+  const key = await ownerKey(ownerId);
   const rows = await db
     .select({ contact: contacts, agent: agents })
     .from(contacts)
     .innerJoin(agents, eq(agents.id, contacts.agentId))
-    .where(eq(contacts.ownerId, ownerId))
-    .orderBy(sql`lower(${contacts.name})`);
-  return rows.map(({ contact, agent }) => contactView(contact, agent));
+    .where(eq(contacts.ownerId, ownerId));
+  return rows
+    .map(({ contact, agent }) => ({ contact: openContact(key, contact), agent }))
+    .sort((a, b) => byName.compare(a.contact.name, b.contact.name));
+}
+
+export async function listContacts(ownerId: string) {
+  const saved = await savedContacts(ownerId);
+  return saved.map(({ contact, agent }) => contactView(contact, agent));
 }
 
 export async function contactsByAgent(
   ownerId: string,
   agentIds: string[],
-): Promise<Map<string, Contact>> {
+): Promise<Map<string, ContactRecord>> {
   if (agentIds.length === 0) return new Map();
+  const key = await ownerKey(ownerId);
   const rows = await db
     .select()
     .from(contacts)
     .where(and(eq(contacts.ownerId, ownerId), inArray(contacts.agentId, agentIds)));
-  return new Map(rows.map((row) => [row.agentId, row]));
+  return new Map(rows.map((row) => [row.agentId, openContact(key, row)]));
 }
 
 export async function saveContact(
@@ -65,10 +109,10 @@ export async function saveContact(
     throw new AppError("invalid_input", "An agent can't save itself as a contact.");
   }
   const name = input.name?.trim() || target.displayName;
+  const key = await ownerKey(ownerId);
   const fields = {
-    name,
-    ...(input.notes !== undefined && { notes: input.notes?.trim() || null }),
-    ...(input.rules !== undefined && { rules: input.rules?.trim() || null }),
+    ...sealFields(key, target.id, { notes: input.notes, rules: input.rules }),
+    name: key.seal(name, fieldContext(target.id, "name")),
   };
 
   const { contact, recorded } = await db.transaction(async (tx) => {
@@ -93,24 +137,24 @@ export async function saveContact(
     return { contact, recorded };
   });
   await broadcast(recorded);
-  return contactView(contact, target);
+  return contactView(openContact(key, contact), target);
 }
 
 export async function updateContact(ownerId: string, id: string, fields: ContactFields) {
-  const patch = {
-    ...(fields.name !== undefined && { name: fields.name.trim() }),
-    ...(fields.notes !== undefined && { notes: fields.notes?.trim() || null }),
-    ...(fields.rules !== undefined && { rules: fields.rules?.trim() || null }),
-  };
+  const [current] = await db
+    .select({ contact: contacts, agent: agents })
+    .from(contacts)
+    .innerJoin(agents, eq(agents.id, contacts.agentId))
+    .where(and(eq(contacts.id, id), eq(contacts.ownerId, ownerId)));
+  if (!current) throw new AppError("not_found", "Contact not found.");
+  const key = await ownerKey(ownerId);
   const [contact] = await db
     .update(contacts)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(and(eq(contacts.id, id), eq(contacts.ownerId, ownerId)))
+    .set({ ...sealFields(key, current.contact.agentId, fields), updatedAt: new Date() })
+    .where(eq(contacts.id, id))
     .returning();
   if (!contact) throw new AppError("not_found", "Contact not found.");
-  const [agent] = await db.select().from(agents).where(eq(agents.id, contact.agentId));
-  if (!agent) throw new Error(`contact ${contact.id} points to a missing agent`);
-  return contactView(contact, agent);
+  return contactView(openContact(key, contact), current.agent);
 }
 
 export async function deleteContact(ownerId: string, id: string): Promise<void> {
@@ -126,13 +170,10 @@ export type AgentMatch = ReturnType<typeof publicProfile> & {
   contact: string | null;
 };
 
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
 export async function findAgents(me: Agent, rawQuery: string): Promise<AgentMatch[]> {
   const query = rawQuery.trim();
   if (!query) throw new AppError("invalid_input", "Tell me who to look for.");
+  const saved = await savedContacts(me.ownerId);
   const found = new Map<string, { agent: Agent; matchedBy: AgentMatch["matchedBy"] }>();
 
   if (EMAIL.test(query) && !query.startsWith("@")) {
@@ -150,27 +191,19 @@ export async function findAgents(me: Agent, rawQuery: string): Promise<AgentMatc
       const agent = await findAgentByHandle(handle);
       if (agent) found.set(agent.id, { agent, matchedBy: "handle" });
     }
-    const rows = await db
-      .select({ agent: agents })
-      .from(contacts)
-      .innerJoin(agents, eq(agents.id, contacts.agentId))
-      .where(
-        and(
-          eq(contacts.ownerId, me.ownerId),
-          ilike(contacts.name, `%${escapeLike(query.replace(/^@/, ""))}%`),
-        ),
-      )
-      .limit(MAX_MATCHES);
-    for (const { agent } of rows) {
-      if (!found.has(agent.id)) found.set(agent.id, { agent, matchedBy: "contact" });
+    const needle = query.replace(/^@/, "").toLowerCase();
+    for (const { contact, agent } of saved) {
+      if (!found.has(agent.id) && contact.name.toLowerCase().includes(needle)) {
+        found.set(agent.id, { agent, matchedBy: "contact" });
+      }
     }
   }
 
   found.delete(me.id);
-  const names = await contactsByAgent(me.ownerId, [...found.keys()]);
+  const names = new Map(saved.map(({ contact }) => [contact.agentId, contact.name]));
   return [...found.values()].slice(0, MAX_MATCHES).map(({ agent, matchedBy }) => ({
     ...publicProfile(agent),
     matchedBy,
-    contact: names.get(agent.id)?.name ?? null,
+    contact: names.get(agent.id) ?? null,
   }));
 }

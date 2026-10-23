@@ -8,4 +8,5 @@ export const testEnv = {
   MAILPIT_URL: process.env.TEST_MAILPIT_URL ?? "http://localhost:8025",
   PUBLIC_API_URL: "http://localhost:8080",
   WEB_URL: "http://localhost:3000",
+  ENCRYPTION_KEY: "nG3BpYl+rMlnT/vTjRklnDQWbqQuaDUYDEZ4PJl5oII=",
 };
