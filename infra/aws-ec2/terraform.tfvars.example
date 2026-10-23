@@ -28,9 +28,10 @@ snapshot_retention_count = 7
 monthly_budget      = 30
 budget_alert_emails = ["ops@example.com"]
 
-# Email. To use another SMTP provider instead of SES:
-# enable_ses = false
+# Email. smtp_url sends through another provider, for example while SES is in the sandbox.
+# Set enable_ses = false as well to drop SES entirely.
 # smtp_url   = "smtps://user:password@smtp.example.com:465"
+# enable_ses = false
 # mail_from  = "Callsign <no-reply@callsign.im>"
 
 # Set to false if the account already has a GitHub Actions OIDC provider.

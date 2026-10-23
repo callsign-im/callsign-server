@@ -144,7 +144,7 @@ variable "ecr_image_retention_count" {
 # Email
 
 variable "enable_ses" {
-  description = "Send email through Amazon SES: verifies domain_name with Easy DKIM and creates SMTP credentials. When false, smtp_url is required."
+  description = "Verify domain_name with Amazon SES (Easy DKIM) and create SMTP credentials for it. When false, smtp_url is required."
   type        = bool
   default     = true
 }
@@ -156,7 +156,7 @@ variable "mail_from" {
 }
 
 variable "smtp_url" {
-  description = "SMTP connection URL with credentials, e.g. smtps://user:pass@smtp.example.com:465. Used only when enable_ses is false."
+  description = "SMTP connection URL with credentials, e.g. smtps://user:pass@smtp.example.com:465. When set, it is used instead of the SES credentials, for example while SES is still in the sandbox."
   type        = string
   default     = null
   sensitive   = true

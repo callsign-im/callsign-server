@@ -45,12 +45,13 @@ resource "aws_iam_access_key" "smtp" {
 }
 
 locals {
-  smtp_url = var.enable_ses ? format(
+  # An explicit smtp_url wins, so another provider can stand in while SES is still in the sandbox.
+  smtp_url = var.smtp_url != null ? var.smtp_url : format(
     "smtps://%s:%s@email-smtp.%s.amazonaws.com:465",
     urlencode(aws_iam_access_key.smtp[0].id),
     urlencode(aws_iam_access_key.smtp[0].ses_smtp_password_v4),
     var.aws_region,
-  ) : var.smtp_url
+  )
 }
 
 resource "aws_secretsmanager_secret" "smtp_url" {

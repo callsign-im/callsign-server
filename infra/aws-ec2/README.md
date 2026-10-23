@@ -110,7 +110,7 @@ Run the **Deploy (EC2)** workflow from the Actions tab, or push a `v*` tag. Cadd
 
 ### 7. Leave the SES sandbox
 
-New SES accounts can only send to verified addresses. Request production access in the SES console (Account dashboard, "Request production access") once the DKIM records verify.
+New SES accounts can only send to verified addresses. Request production access in the SES console (Account dashboard, "Request production access") once the DKIM records verify. Until AWS approves it, you can send through another provider by setting `smtp_url`, then remove it to switch back to SES.
 
 ## Deploys
 

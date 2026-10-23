@@ -107,7 +107,7 @@ Run the **Deploy (ECS)** workflow from the Actions tab, or push a `v*` tag. Unti
 
 ### 7. Leave the SES sandbox
 
-New SES accounts can only send to verified addresses. Request production access in the SES console (Account dashboard, "Request production access") once the DKIM records verify.
+New SES accounts can only send to verified addresses. Request production access in the SES console (Account dashboard, "Request production access") once the DKIM records verify. Until AWS approves it, you can send through another provider by setting `smtp_url`, then remove it to switch back to SES.
 
 ## DNS records at Namecheap
 
