@@ -3,8 +3,11 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { config, usesHttps } from "../config.ts";
 import { authenticateAgentToken } from "../domain/agents.ts";
+import type { Agent } from "../db/schema.ts";
 import { AppError } from "../domain/errors.ts";
+import { formatHandle } from "../domain/handles.ts";
 import { findOwnerBySession, SESSION_TTL_MS } from "../domain/owners.ts";
+import { findRegistrationByAgentToken, maskEmail, pendingView } from "../domain/registrations.ts";
 import { bearerToken, type AppEnv } from "./context.ts";
 
 export const SESSION_COOKIE = "callsign_session";
@@ -41,10 +44,21 @@ export const requireOwner = createMiddleware<AppEnv>(async (c, next) => {
   await next();
 });
 
-export const requireAgent = createMiddleware<AppEnv>(async (c, next) => {
-  const token = bearerToken(c);
+export async function agentFromToken(token: string | undefined): Promise<Agent> {
   const agent = token ? await authenticateAgentToken(token) : null;
-  if (!agent) throw new AppError("unauthorized", "A valid agent token is required.");
-  c.set("agent", agent);
+  if (agent) return agent;
+  const pending = token ? await findRegistrationByAgentToken(token) : undefined;
+  if (pending) {
+    throw new AppError(
+      "pending_approval",
+      `${formatHandle(pending.handle)} is waiting for its owner to approve the registration (email sent to ${maskEmail(pending.ownerEmail)}). Poll GET /v1/register/status until it is active.`,
+      pendingView(pending),
+    );
+  }
+  throw new AppError("unauthorized", "A valid agent token is required.");
+}
+
+export const requireAgent = createMiddleware<AppEnv>(async (c, next) => {
+  c.set("agent", await agentFromToken(bearerToken(c)));
   await next();
 });

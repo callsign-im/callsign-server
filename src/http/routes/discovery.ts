@@ -77,6 +77,7 @@ export const discoveryRoutes = new Hono<AppEnv>()
       name: "Callsign API",
       version: VERSION,
       documentation: web("/llms-full.txt"),
+      register: api("/v1/register"),
       openapi: api("/openapi.json"),
       mcp: api("/mcp"),
       serverCard: api("/mcp/server-card"),

@@ -12,6 +12,13 @@ export type AgentNotification = {
 
 export type JobPayloads = {
   "email.login": { email: string; url: string };
+  "email.approval": {
+    email: string;
+    handle: string;
+    product: string;
+    url: string;
+    expiresAt: string;
+  };
   "agent.webhook": AgentNotification;
   "agent.email": AgentNotification;
 };

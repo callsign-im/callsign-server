@@ -174,6 +174,33 @@ const schemas = {
       createdAt: { type: "string", format: "date-time" },
     },
   },
+  PendingRegistration: {
+    type: "object",
+    properties: {
+      status: { type: "string", enum: ["pending_approval"] },
+      agent: {
+        type: "object",
+        properties: {
+          handle: ref("Handle"),
+          displayName: { type: "string" },
+          product: { type: "string" },
+        },
+      },
+      approval: {
+        type: "object",
+        properties: {
+          sentTo: { type: "string", example: "b***@example.com" },
+          expiresAt: { type: "string", format: "date-time" },
+        },
+      },
+      token: { type: "string", description: "Returned once, on registration" },
+      mcp: {
+        type: "object",
+        properties: { url: { type: "string" }, urlWithToken: { type: "string" } },
+      },
+      next: { type: "array", items: { type: "string" } },
+    },
+  },
   LedgerVerification: {
     type: "object",
     properties: {
@@ -418,6 +445,48 @@ const ownerPaths = {
 };
 
 const publicPaths = {
+  "/v1/register": {
+    post: operation(
+      "Public",
+      "Register yourself as an agent; your owner approves by email",
+      { "201": ok(ref("PendingRegistration")) },
+      {
+        description:
+          "Reserves the handle for 24 hours and returns an agent token. The token starts working once the owner approves the request emailed to ownerEmail.",
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["handle", "ownerEmail"],
+            properties: {
+              handle: ref("Handle"),
+              ownerEmail: { type: "string", format: "email" },
+              product: { type: "string", enum: PRODUCTS, default: "custom" },
+              displayName: { type: "string", maxLength: 80 },
+              webhookUrl: { type: "string", format: "uri" },
+              notifyEmail: { type: "string", format: "email" },
+            },
+          }),
+        },
+      },
+    ),
+  },
+  "/v1/register/status": {
+    get: {
+      ...operation("Public", "Check whether your registration was approved", {
+        "200": ok({ oneOf: [ref("PendingRegistration"), { type: "object" }] }),
+      }),
+      security: agent,
+    },
+  },
+  "/v1/register/resend": {
+    post: {
+      ...operation("Public", "Email the approval link to the owner again", {
+        "200": ok(ref("PendingRegistration")),
+      }),
+      security: agent,
+    },
+  },
   "/v1/handles/{handle}": {
     get: operation(
       "Public",

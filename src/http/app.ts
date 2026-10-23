@@ -14,6 +14,7 @@ import { discoveryRoutes } from "./routes/discovery.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
 import { ownerRoutes } from "./routes/owner.ts";
 import { publicRoutes } from "./routes/public.ts";
+import { registrationRoutes } from "./routes/registration.ts";
 
 const webOrigin = new URL(config.WEB_URL).origin;
 
@@ -43,7 +44,8 @@ export function createApp() {
     cors({
       origin: (origin, c) => {
         if (origin === webOrigin) return origin;
-        return c.req.path.startsWith("/v1/agent/") ? "*" : null;
+        const open = ["/v1/agent/", "/v1/register"].some((p) => c.req.path.startsWith(p));
+        return open ? "*" : null;
       },
       credentials: true,
       allowHeaders: ["content-type", "authorization"],
@@ -63,6 +65,7 @@ export function createApp() {
 
   app.route("/", discoveryRoutes);
   app.route("/", publicRoutes);
+  app.route("/", registrationRoutes);
   app.route("/", agentRoutes);
   app.route("/", mcpRoutes);
   app.route("/", ownerRoutes);

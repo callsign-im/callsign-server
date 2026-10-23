@@ -1,7 +1,14 @@
-import { and, count, desc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
 import { config } from "../config.ts";
 import { db, type Executor } from "../db/client.ts";
-import { agentTokens, agents, type Agent, type AgentToken, type Owner } from "../db/schema.ts";
+import {
+  agentRegistrations,
+  agentTokens,
+  agents,
+  type Agent,
+  type AgentToken,
+  type Owner,
+} from "../db/schema.ts";
 import { randomToken, sha256 } from "../lib/crypto.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
@@ -18,7 +25,7 @@ import { appendLedgerEvent, broadcast } from "./ledger.ts";
 export const PRODUCTS = ["dots", "claude-duet", "grok-bot", "muse", "custom"] as const;
 export type Product = (typeof PRODUCTS)[number];
 
-const MAX_AGENTS_PER_OWNER = 25;
+export const MAX_AGENTS_PER_OWNER = 25;
 const TOUCH_INTERVAL_MS = 60_000;
 
 export async function findAgentByHandle(
@@ -39,7 +46,18 @@ export async function handleAvailability(
   const format = checkHandleFormat(handle);
   if (format !== "available") return { handle, status: format };
   const agent = await findAgentByHandle(handle);
-  return agent ? { handle, status: "taken", agent } : { handle, status: "available" };
+  if (agent) return { handle, status: "taken", agent };
+  return { handle, status: (await isAwaitingApproval(handle)) ? "taken" : "available" };
+}
+
+async function isAwaitingApproval(handle: string, executor: Executor = db): Promise<boolean> {
+  const [pending] = await executor
+    .select({ id: agentRegistrations.id })
+    .from(agentRegistrations)
+    .where(
+      and(eq(agentRegistrations.handle, handle), gt(agentRegistrations.expiresAt, new Date())),
+    );
+  return pending !== undefined;
 }
 
 export async function listOwnerAgents(ownerId: string): Promise<Agent[]> {
@@ -72,6 +90,12 @@ export async function createAgent(
 
   try {
     const { agent, recorded } = await db.transaction(async (tx) => {
+      if (await isAwaitingApproval(handle, tx)) {
+        throw new AppError(
+          "conflict",
+          `${formatHandle(handle)} is waiting for its owner's approval.`,
+        );
+      }
       const [agent] = await tx
         .insert(agents)
         .values({

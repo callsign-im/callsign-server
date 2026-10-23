@@ -1,10 +1,17 @@
 export type ErrorCode =
-  "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "rate_limited";
+  | "invalid_input"
+  | "unauthorized"
+  | "forbidden"
+  | "pending_approval"
+  | "not_found"
+  | "conflict"
+  | "rate_limited";
 
 const STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 429> = {
   invalid_input: 400,
   unauthorized: 401,
   forbidden: 403,
+  pending_approval: 403,
   not_found: 404,
   conflict: 409,
   rate_limited: 429,

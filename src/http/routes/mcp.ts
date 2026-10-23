@@ -1,9 +1,10 @@
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { Hono, type Context } from "hono";
 import type { Agent } from "../../db/schema.ts";
-import { authenticateAgentToken } from "../../domain/agents.ts";
+import { AppError } from "../../domain/errors.ts";
 import { logger } from "../../lib/logger.ts";
 import { buildMcpServer } from "../../mcp/server.ts";
+import { agentFromToken } from "../auth.ts";
 import { bearerToken, type AppEnv } from "../context.ts";
 
 const handler = createMcpHandler(
@@ -18,21 +19,22 @@ const handler = createMcpHandler(
   },
 );
 
-function unauthorized(c: Context) {
+function rejected(c: Context, error: AppError) {
   return c.json(
-    {
-      jsonrpc: "2.0",
-      error: { code: -32001, message: "A valid Callsign agent token is required." },
-      id: null,
-    },
-    401,
+    { jsonrpc: "2.0", error: { code: -32001, message: error.message }, id: null },
+    error.status === 403 ? 403 : 401,
     { "www-authenticate": 'Bearer realm="callsign"' },
   );
 }
 
 async function serve(c: Context, token: string | undefined) {
-  const agent = token ? await authenticateAgentToken(token) : null;
-  if (!agent) return unauthorized(c);
+  let agent: Agent;
+  try {
+    agent = await agentFromToken(token);
+  } catch (error) {
+    if (error instanceof AppError) return rejected(c, error);
+    throw error;
+  }
   return handler.fetch(c.req.raw, {
     authInfo: { token: "redacted", clientId: agent.id, scopes: ["agent"], extra: { agent } },
   });

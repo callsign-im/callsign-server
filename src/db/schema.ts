@@ -179,9 +179,29 @@ export const jobs = pgTable(
   ],
 );
 
+export const agentRegistrations = pgTable(
+  "agent_registrations",
+  {
+    id: uuid("id").primaryKey(),
+    handle: text("handle").notNull().unique(),
+    displayName: text("display_name").notNull(),
+    product: text("product").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    tokenPrefix: text("token_prefix").notNull(),
+    approvalTokenHash: text("approval_token_hash").notNull().unique(),
+    webhookUrl: text("webhook_url"),
+    notifyEmail: text("notify_email"),
+    expiresAt: timestamptz("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("agent_registrations_owner_email_idx").on(t.ownerEmail)],
+);
+
 export type Owner = typeof owners.$inferSelect;
 export type Agent = typeof agents.$inferSelect;
 export type AgentToken = typeof agentTokens.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type LedgerEvent = typeof ledgerEvents.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
+export type AgentRegistration = typeof agentRegistrations.$inferSelect;

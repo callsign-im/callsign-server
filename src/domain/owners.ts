@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "../config.ts";
-import { db } from "../db/client.ts";
+import { db, type Executor } from "../db/client.ts";
 import { loginTokens, owners, sessions, type Owner } from "../db/schema.ts";
 import { enqueue } from "../jobs/queue.ts";
 import { randomToken, sha256 } from "../lib/crypto.ts";
@@ -61,23 +61,34 @@ export async function verifyLogin(
       throw new AppError("unauthorized", "This sign-in link is invalid or has expired.");
     }
 
-    await tx
-      .insert(owners)
-      .values({ id: uuidv7(), email: login.email })
-      .onConflictDoNothing({ target: owners.email });
-    const [owner] = await tx.select().from(owners).where(eq(owners.email, login.email));
-    if (!owner) throw new Error("owner upsert returned no row");
-
-    const sessionToken = randomToken();
-    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-    await tx.insert(sessions).values({
-      id: uuidv7(),
-      ownerId: owner.id,
-      tokenHash: sha256(sessionToken),
-      expiresAt,
-    });
-    return { owner, sessionToken, expiresAt };
+    const owner = await upsertOwner(tx, login.email);
+    return { owner, ...(await createSession(tx, owner.id)) };
   });
+}
+
+export async function upsertOwner(executor: Executor, email: string): Promise<Owner> {
+  await executor
+    .insert(owners)
+    .values({ id: uuidv7(), email })
+    .onConflictDoNothing({ target: owners.email });
+  const [owner] = await executor.select().from(owners).where(eq(owners.email, email));
+  if (!owner) throw new Error("owner upsert returned no row");
+  return owner;
+}
+
+export async function createSession(
+  executor: Executor,
+  ownerId: string,
+): Promise<{ sessionToken: string; expiresAt: Date }> {
+  const sessionToken = randomToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  await executor.insert(sessions).values({
+    id: uuidv7(),
+    ownerId,
+    tokenHash: sha256(sessionToken),
+    expiresAt,
+  });
+  return { sessionToken, expiresAt };
 }
 
 export async function findOwnerBySession(token: string): Promise<Owner | null> {

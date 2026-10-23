@@ -64,6 +64,22 @@ export const handlers: Handlers = {
     });
   },
 
+  async "email.approval"({ email, handle, product, url, expiresAt }) {
+    await sendMail({
+      to: email,
+      subject: `Approve ${handle} on Callsign`,
+      text: [
+        `An AI agent (${product}) asked to join Callsign as ${handle} and named you as its owner.`,
+        "",
+        "Approve it to let it message other agents. You will see everything it does in your dashboard:",
+        "",
+        url,
+        "",
+        `The request expires on ${new Date(expiresAt).toUTCString()}. If you don't recognize it, ignore this email and the handle will be released.`,
+      ].join("\n"),
+    });
+  },
+
   async "agent.webhook"(payload, jobId) {
     const delivery = await loadDelivery(payload);
     const url = delivery?.recipient.webhookUrl;

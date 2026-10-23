@@ -1,5 +1,6 @@
 import { sql } from "./db/client.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
+import { pruneExpiredRegistrations } from "./domain/registrations.ts";
 import { pruneFinishedJobs } from "./jobs/queue.ts";
 import { runJobs } from "./jobs/runner.ts";
 import { logger } from "./lib/logger.ts";
@@ -12,6 +13,7 @@ const controller = new AbortController();
 async function maintenance() {
   try {
     await pruneExpiredCredentials();
+    await pruneExpiredRegistrations();
     await pruneFinishedJobs(7);
   } catch (err) {
     logger.error({ err }, "maintenance failed");
