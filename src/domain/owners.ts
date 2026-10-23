@@ -1,0 +1,100 @@
+import { and, eq, gt, isNull, lt } from "drizzle-orm";
+import { z } from "zod";
+import { config } from "../config.ts";
+import { db } from "../db/client.ts";
+import { loginTokens, owners, sessions, type Owner } from "../db/schema.ts";
+import { enqueue } from "../jobs/queue.ts";
+import { randomToken, sha256 } from "../lib/crypto.ts";
+import { uuidv7 } from "../lib/ids.ts";
+import { rateLimit } from "../lib/rate-limit.ts";
+import { AppError } from "./errors.ts";
+
+const LOGIN_TOKEN_TTL_MS = 15 * 60_000;
+export const SESSION_TTL_MS = 30 * 86_400_000;
+
+const emailSchema = z.email().max(254);
+
+export function normalizeEmail(raw: string): string {
+  const email = raw.trim().toLowerCase();
+  if (!emailSchema.safeParse(email).success) {
+    throw new AppError("invalid_input", "Enter a valid email address.");
+  }
+  return email;
+}
+
+export async function requestLogin(rawEmail: string, ip: string): Promise<void> {
+  const email = normalizeEmail(rawEmail);
+  await rateLimit(`login-ip:${ip}`, 20, 900);
+  await rateLimit(`login-email:${email}`, 5, 900);
+
+  const token = randomToken();
+  const url = new URL("/auth/verify", config.WEB_URL);
+  url.searchParams.set("token", token);
+
+  await db.transaction(async (tx) => {
+    await tx.insert(loginTokens).values({
+      id: uuidv7(),
+      email,
+      tokenHash: sha256(token),
+      expiresAt: new Date(Date.now() + LOGIN_TOKEN_TTL_MS),
+    });
+    await enqueue(tx, "email.login", { email, url: url.toString() });
+  });
+}
+
+export async function verifyLogin(
+  token: string,
+): Promise<{ owner: Owner; sessionToken: string; expiresAt: Date }> {
+  return db.transaction(async (tx) => {
+    const [login] = await tx
+      .update(loginTokens)
+      .set({ consumedAt: new Date() })
+      .where(
+        and(
+          eq(loginTokens.tokenHash, sha256(token)),
+          isNull(loginTokens.consumedAt),
+          gt(loginTokens.expiresAt, new Date()),
+        ),
+      )
+      .returning({ email: loginTokens.email });
+    if (!login) {
+      throw new AppError("unauthorized", "This sign-in link is invalid or has expired.");
+    }
+
+    await tx
+      .insert(owners)
+      .values({ id: uuidv7(), email: login.email })
+      .onConflictDoNothing({ target: owners.email });
+    const [owner] = await tx.select().from(owners).where(eq(owners.email, login.email));
+    if (!owner) throw new Error("owner upsert returned no row");
+
+    const sessionToken = randomToken();
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+    await tx.insert(sessions).values({
+      id: uuidv7(),
+      ownerId: owner.id,
+      tokenHash: sha256(sessionToken),
+      expiresAt,
+    });
+    return { owner, sessionToken, expiresAt };
+  });
+}
+
+export async function findOwnerBySession(token: string): Promise<Owner | null> {
+  const [row] = await db
+    .select({ owner: owners })
+    .from(sessions)
+    .innerJoin(owners, eq(owners.id, sessions.ownerId))
+    .where(and(eq(sessions.tokenHash, sha256(token)), gt(sessions.expiresAt, new Date())));
+  return row?.owner ?? null;
+}
+
+export async function revokeSession(token: string): Promise<void> {
+  await db.delete(sessions).where(eq(sessions.tokenHash, sha256(token)));
+}
+
+export async function pruneExpiredCredentials(): Promise<void> {
+  const now = new Date();
+  await db.delete(loginTokens).where(lt(loginTokens.expiresAt, now));
+  await db.delete(sessions).where(lt(sessions.expiresAt, now));
+}
