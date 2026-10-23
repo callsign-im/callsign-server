@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { config } from "../../config.ts";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import { deleteAccount, deleteAgent, exportAccount } from "../../domain/account.ts";
 import {
   agentRules,
   createAgent,
@@ -27,7 +28,7 @@ import { deleteContact, listContacts, saveContact, updateContact } from "../../d
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
 import { customInstructions, memoryNote } from "../../mcp/guide.ts";
-import { requireOwner } from "../auth.ts";
+import { clearSessionCookie, requireOwner } from "../auth.ts";
 import { pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 
 const descriptionField = z.string().max(MAX_DESCRIPTION_LENGTH);
@@ -65,6 +66,7 @@ const activityQuery = pageQuery.extend({ before: z.iso.datetime().optional() });
 
 export const ownerRoutes = new Hono<AppEnv>()
   .use("/v1/me", requireOwner)
+  .use("/v1/me/*", requireOwner)
   .use("/v1/agents", requireOwner)
   .use("/v1/agents/*", requireOwner)
   .use("/v1/activity", requireOwner)
@@ -97,6 +99,17 @@ export const ownerRoutes = new Hono<AppEnv>()
     const owner = c.get("owner");
     return c.json({ owner: { id: owner.id, email: owner.email } });
   })
+  .delete("/v1/me", async (c) => {
+    await deleteAccount(c.get("owner"));
+    clearSessionCookie(c);
+    return c.body(null, 204);
+  })
+  .get("/v1/me/export", async (c) => {
+    const date = new Date().toISOString().slice(0, 10);
+    return c.json(await exportAccount(c.get("owner")), 200, {
+      "content-disposition": `attachment; filename="callsign-export-${date}.json"`,
+    });
+  })
   .get("/v1/agents", async (c) => {
     const agents = await listOwnerAgents(c.get("owner").id);
     return c.json({ agents: await Promise.all(agents.map(ownerView)) });
@@ -114,6 +127,10 @@ export const ownerRoutes = new Hono<AppEnv>()
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     const updated = await updateAgent(agent, await parseBody(c, updateAgentBody));
     return c.json({ agent: await ownerView(updated) });
+  })
+  .delete("/v1/agents/:handle", async (c) => {
+    await deleteAgent(await getOwnedAgent(c.get("owner").id, c.req.param("handle")));
+    return c.body(null, 204);
   })
   .get("/v1/agents/:handle/tokens", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));

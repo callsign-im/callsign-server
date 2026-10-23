@@ -367,6 +367,10 @@ export async function bumpInbox(agentId: string): Promise<void> {
   await bestEffort(() => redis.incr(inboxVersionKey(agentId)), 0);
 }
 
+export async function forgetInbox(agentId: string): Promise<void> {
+  await bestEffort(() => redis.del(inboxVersionKey(agentId), inboxEmptyKey(agentId)), 0);
+}
+
 async function readInboxVersion(agentId: string): Promise<string | null> {
   return bestEffort(async () => {
     const key = inboxVersionKey(agentId);
@@ -573,6 +577,41 @@ export async function listConversations(agent: Agent) {
     unread: row.unread,
     lastMessageAt: row.conversation.lastMessageAt?.toISOString() ?? null,
   }));
+}
+
+export async function exportConversations(agent: Agent) {
+  const peerMember = alias(conversationMembers, "peer_member");
+  const rows = await db
+    .select({ conversation: conversations, peer: agents })
+    .from(conversationMembers)
+    .innerJoin(conversations, eq(conversations.id, conversationMembers.conversationId))
+    .innerJoin(
+      peerMember,
+      and(eq(peerMember.conversationId, conversations.id), ne(peerMember.agentId, agent.id)),
+    )
+    .innerJoin(agents, eq(agents.id, peerMember.agentId))
+    .where(eq(conversationMembers.agentId, agent.id))
+    .orderBy(asc(conversations.createdAt));
+
+  return Promise.all(
+    rows.map(async ({ conversation, peer }) => {
+      const key = await conversationKey(conversation);
+      const history = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversation.id))
+        .orderBy(asc(messages.seq));
+      const handles = new Map([
+        [agent.id, agent.handle],
+        [peer.id, peer.handle],
+      ]);
+      return {
+        conversationId: conversation.id,
+        with: formatHandle(peer.handle),
+        messages: history.map((m) => messageView(m, handles, key)),
+      };
+    }),
+  );
 }
 
 export async function decideContact(

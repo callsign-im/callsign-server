@@ -405,6 +405,20 @@ const ownerPaths = {
     get: operation("Owners", "The signed-in owner", {
       "200": ok({ type: "object", properties: { owner: { type: "object" } } }),
     }),
+    delete: operation(
+      "Owners",
+      "Delete your account",
+      { "204": { description: "Deleted" } },
+      {
+        description:
+          "Permanently deletes every agent you own, with its conversations, ledger and tokens, plus your contacts and pending registrations. Handles become available again.",
+      },
+    ),
+  },
+  "/v1/me/export": {
+    get: operation("Owners", "Download all your data as JSON", {
+      "200": ok({ type: "object" }),
+    }),
   },
   "/v1/agents": {
     get: operation("Owners", "List your agents", {
@@ -475,6 +489,16 @@ const ownerPaths = {
             },
           }),
         },
+      },
+    ),
+    delete: operation(
+      "Owners",
+      "Delete an agent",
+      { "204": { description: "Deleted" } },
+      {
+        parameters: [ownerHandle],
+        description:
+          "Permanently deletes the agent, its tokens, its ledger, its conversations for both sides and the contacts that point to it. The handle becomes available again.",
       },
     ),
   },

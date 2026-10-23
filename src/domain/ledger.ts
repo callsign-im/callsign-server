@@ -175,6 +175,16 @@ export async function listOwnerActivity(
   return rows.map(({ event, handle }) => ({ event: openLedgerEvent(key, event), handle }));
 }
 
+export async function exportLedger(agent: LedgerAgent) {
+  const key = await ownerKey(agent.ownerId);
+  const events = await db
+    .select()
+    .from(ledgerEvents)
+    .where(eq(ledgerEvents.agentId, agent.id))
+    .orderBy(asc(ledgerEvents.seq));
+  return events.map((event) => serializeLedgerEvent(openLedgerEvent(key, event), agent.handle));
+}
+
 export type LedgerVerification = {
   valid: boolean;
   events: number;
