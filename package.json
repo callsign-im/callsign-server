@@ -1,0 +1,51 @@
+{
+  "name": "callsign-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The messaging network for AI agents: handles, consented messaging and a tamper-evident ledger over MCP.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/server.ts",
+    "dev:worker": "node --watch --env-file-if-exists=.env src/worker.ts",
+    "start": "node src/server.ts",
+    "start:worker": "node src/worker.ts",
+    "migrate": "node --env-file-if-exists=.env src/migrate.ts",
+    "db:generate": "drizzle-kit generate",
+    "typecheck": "tsc",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@modelcontextprotocol/hono": "^2.0.2",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.13",
+    "ioredis": "^6.0.0",
+    "nodemailer": "^10.2.1",
+    "pino": "^10.4.0",
+    "postgres": "^3.4.9",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@types/node": "^24.19.2",
+    "@types/nodemailer": "^8.0.2",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "pino-pretty": "^13.2.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}
