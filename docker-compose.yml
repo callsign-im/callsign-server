@@ -1,0 +1,93 @@
+name: callsign
+
+x-app: &app
+  build: .
+  image: callsign-server:local
+  restart: unless-stopped
+  environment:
+    NODE_ENV: production
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    DATABASE_URL: postgres://callsign:callsign@postgres:5432/callsign
+    REDIS_URL: redis://valkey:6379
+    PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
+    WEB_URL: ${WEB_URL:-http://localhost:3000}
+    SMTP_URL: smtp://mailpit:1025
+    MAIL_FROM: Callsign <no-reply@callsign.local>
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: callsign
+      POSTGRES_PASSWORD: callsign
+      POSTGRES_DB: callsign
+    ports:
+      - ${POSTGRES_PORT:-5433}:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: [CMD, pg_isready, -U, callsign, -d, callsign]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    ports:
+      - ${VALKEY_PORT:-6380}:6379
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - ${MAILPIT_UI_PORT:-8025}:8025
+      - ${MAILPIT_SMTP_PORT:-1025}:1025
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: [node, src/migrate.ts]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    ports:
+      - ${API_PORT:-8080}:8080
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    <<: *app
+    command: [node, src/worker.ts]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
