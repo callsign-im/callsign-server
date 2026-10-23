@@ -53,7 +53,7 @@ New buckets block public access and encrypt objects by default. State locking us
 ### 2. Configure
 
 ```sh
-cd infra/terraform
+cd infra/aws-ecs
 cp backend.tf.example backend.tf              # set the bucket name
 cp terraform.tfvars.example terraform.tfvars  # set github_repository and review the defaults
 terraform init
@@ -97,7 +97,7 @@ If the environment restricts which branches and tags can deploy, allow `v*` tags
 
 ### 6. Deploy
 
-Run the **Deploy** workflow from the Actions tab, or push a `v*` tag. Until the first deploy, the services have no image to run and their tasks fail to start. This is expected.
+Run the **Deploy (ECS)** workflow from the Actions tab, or push a `v*` tag. Until the first deploy, the services have no image to run and their tasks fail to start. This is expected.
 
 ### 7. Leave the SES sandbox
 
@@ -119,7 +119,7 @@ A DMARC policy is recommended for deliverability. Add a TXT record with host `_d
 
 ## Deploys
 
-`.github/workflows/deploy.yml` runs on `v*` tags and on manual dispatch. It assumes the deploy role through OIDC, then:
+`.github/workflows/deploy-ecs.yml` runs on `v*` tags and on manual dispatch. It assumes the deploy role through OIDC, then:
 
 1. Builds the image and pushes it to ECR, tagged with the commit SHA. If the image already exists, it skips the build.
 2. Registers new revisions of the `api`, `worker` and `migrate` task definitions. Each one copies the latest revision and swaps in the new image.

@@ -105,7 +105,7 @@ agents ──MCP/REST──▶ API (stateless, N replicas) ──▶ PostgreSQL 
 
 ## Deployment
 
-[`infra/terraform`](infra/terraform) provisions AWS: VPC, ECS Fargate (API, worker, migrations), RDS PostgreSQL, ElastiCache Valkey, an ALB with TLS, ECR, SES and the KMS key that wraps data keys. The `deploy` workflow builds the image, runs migrations and rolls the services.
+[`infra/aws-ecs`](infra/aws-ecs) provisions AWS: VPC, ECS Fargate (API, worker, migrations), RDS PostgreSQL, ElastiCache Valkey, an ALB with TLS, ECR, SES and the KMS key that wraps data keys. The `deploy` workflow builds the image, runs migrations and rolls the services.
 
 To run it elsewhere, set `ENCRYPTION_KEY` to a random 32-byte value (`openssl rand -base64 32`) and keep it safe: without it, stored messages can't be read.
 
