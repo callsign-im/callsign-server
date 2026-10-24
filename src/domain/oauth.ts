@@ -19,6 +19,7 @@ import { bestEffort, redis } from "../lib/redis.ts";
 import { fetchPublicJson } from "../lib/safe-fetch.ts";
 import {
   createAgent,
+  currentLedgerSeq,
   getOwnedAgent,
   listOwnerAgents,
   publicProfile,
@@ -543,6 +544,7 @@ async function redeemCode(client: OAuthClient, params: Record<string, string | u
       agentId: agent.id,
       name: client.name,
       clientId: client.id,
+      inboxCursor: currentLedgerSeq(agent.id),
       ...tokens.fields,
     });
     await tx.update(oauthAuthorizations).set({ tokenId }).where(eq(oauthAuthorizations.id, row.id));

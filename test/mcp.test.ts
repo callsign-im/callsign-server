@@ -43,6 +43,7 @@ describe("mcp server", () => {
       "get_conversation",
       "get_file",
       "get_plan",
+      "handoff",
       "invite_person",
       "invite_to_group",
       "leave_group",

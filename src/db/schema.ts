@@ -114,6 +114,7 @@ export const agentTokens = pgTable(
     refreshTokenHash: text("refresh_token_hash").unique(),
     previousRefreshTokenHash: text("previous_refresh_token_hash"),
     refreshExpiresAt: timestamptz("refresh_expires_at"),
+    inboxCursor: counter("inbox_cursor"),
     lastUsedAt: timestamptz("last_used_at"),
     revokedAt: timestamptz("revoked_at"),
     createdAt: createdAt(),
@@ -418,6 +419,26 @@ export const followUps = pgTable(
   (t) => [index("follow_ups_agent_id_idx").on(t.agentId)],
 );
 
+export const handoffs = pgTable(
+  "handoffs",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id").references(() => plans.id, { onDelete: "cascade" }),
+    client: text("client"),
+    summary: sealed("summary").notNull(),
+    next: sealed("next"),
+    files: sealed("files"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("handoffs_agent_id_idx").on(t.agentId, t.createdAt),
+    index("handoffs_plan_id_idx").on(t.planId, t.createdAt),
+  ],
+);
+
 export const ledgerEvents = pgTable(
   "ledger_events",
   {
@@ -525,3 +546,4 @@ export type PlanTask = typeof planTasks.$inferSelect;
 export type Notice = typeof notices.$inferSelect;
 export type FollowUp = typeof followUps.$inferSelect;
 export type Report = typeof reports.$inferSelect;
+export type Handoff = typeof handoffs.$inferSelect;

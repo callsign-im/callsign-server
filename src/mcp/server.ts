@@ -31,17 +31,25 @@ import {
   removeFromGroup,
   type GroupView,
 } from "../domain/groups.ts";
+import {
+  createHandoff,
+  MAX_HANDOFF_FILE_LENGTH,
+  MAX_HANDOFF_FILES,
+  MAX_HANDOFF_TEXT,
+  planHandoffs,
+  type HandoffView,
+} from "../domain/handoffs.ts";
 import type { OwnerSignals } from "../domain/identity.ts";
 import { invitePerson } from "../domain/invitations.ts";
 import { serializeLedgerEvent } from "../domain/ledger.ts";
 import {
-  checkInbox,
   decideContact,
   getConversation,
   logAction,
   MAX_BODY_LENGTH,
   MAX_WAIT_SECONDS,
   PENDING_MESSAGE_LIMIT,
+  readInbox,
   sendMessage,
   UNTRUSTED_NOTICE,
   waitForInbox,
@@ -80,7 +88,7 @@ import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../domain/repor
 import { eventCatalog, EventsError, subscribe, unsubscribe } from "../domain/subscriptions.ts";
 import { logger } from "../lib/logger.ts";
 import { SERVER_NAME, VERSION } from "../version.ts";
-import { ownerRules, serverInstructions, wakeUpHint } from "./guide.ts";
+import { describeHandoff, ownerRules, serverInstructions, wakeUpHint } from "./guide.ts";
 
 const handleField = (description: string) =>
   z.string().min(1).max(64).describe(`${description} Include the @, e.g. @mateorivasagent.`);
@@ -467,11 +475,19 @@ function registerEvents(server: McpServer, agent: Agent, tokenId: string) {
   );
 }
 
-export function buildMcpServer(agent: Agent, rules: string | null, tokenId: string): McpServer {
+export type McpSession = {
+  agent: Agent;
+  tokenId: string;
+  client: string;
+  rules: string | null;
+  handoff: HandoffView | null;
+};
+
+export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSession): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, title: "Callsign", version: VERSION },
     {
-      instructions: serverInstructions(agent, rules),
+      instructions: serverInstructions(agent, rules, handoff),
       capabilities: { events: {} } as ServerCapabilities,
     },
   );
@@ -501,8 +517,9 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
               : "Your profile has no description, so agents that look you up can't tell what you do. Ask your owner how to describe you, then set it with update_profile.",
             ...(wokenUp ? [] : [wakeUpHint(agent.handle)]),
             ownerRules(rules),
+            ...(handoff ? [`Your last ${describeHandoff(handoff)}`] : []),
           ].join("\n"),
-          { ...profile, rules, wokenUp },
+          { ...profile, rules, wokenUp, handoff },
         );
       }),
   );
@@ -670,7 +687,7 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
     },
     () =>
       run("check_inbox", async () => {
-        const inbox = await checkInbox(agent);
+        const inbox = await readInbox(agent, tokenId);
         return result(describeInbox(inbox), { ...inbox, notice: UNTRUSTED_NOTICE });
       }),
   );
@@ -693,7 +710,10 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
     },
     ({ seconds }, ctx) =>
       run("wait_for_reply", async () => {
-        const inbox = await waitForInbox(agent, seconds, { signal: ctx.mcpReq.signal });
+        const inbox = await waitForInbox(agent, seconds, {
+          signal: ctx.mcpReq.signal,
+          tokenId,
+        });
         const text = inboxIsEmpty(inbox)
           ? "No new messages arrived while waiting. If the agent you're waiting for isn't active, check your inbox later instead of waiting again."
           : describeInbox(inbox);
@@ -944,7 +964,47 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
     ({ plan: planId }) =>
       run("get_plan", async () => {
         const plan = await getPlan(agent, planId);
-        return result(describePlan(plan), { plan });
+        const handoff = (await planHandoffs([plan.id])).get(plan.id) ?? null;
+        return result(
+          [describePlan(plan), ...(handoff ? [`Latest ${describeHandoff(handoff)}`] : [])].join(
+            "\n",
+          ),
+          { plan, handoff },
+        );
+      }),
+  );
+
+  server.registerTool(
+    "handoff",
+    {
+      title: "Leave a handoff note",
+      description:
+        "Before you stop working on something, leave a note for whoever picks it up: where things stand, what's left and which files matter. Your next session sees it when it connects to Callsign from any client (Claude Code, opencode, ChatGPT…), and whoami shows it. Pass a plan to share it with the plan's members too; they get a notice.",
+      inputSchema: z.object({
+        summary: z
+          .string()
+          .min(1)
+          .max(MAX_HANDOFF_TEXT)
+          .describe("Where things stand: what you did, what you decided and why."),
+        next: z.string().max(MAX_HANDOFF_TEXT).optional().describe("What's left to do, in order."),
+        files: z
+          .array(z.string().min(1).max(MAX_HANDOFF_FILE_LENGTH))
+          .max(MAX_HANDOFF_FILES)
+          .optional()
+          .describe("Paths, links or Callsign file ids the next session will need."),
+        plan: z.string().uuid().optional().describe("Share the note on this plan."),
+      }),
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    ({ summary, next, files, plan }) =>
+      run("handoff", async () => {
+        const saved = await createHandoff(agent, { summary, next, files, plan }, client);
+        return result(
+          saved.planId
+            ? "Saved your handoff on the plan and told its members. Your next session will see it too."
+            : "Saved your handoff. Your next session will see it when it connects, in any client.",
+          { handoff: saved },
+        );
       }),
   );
 

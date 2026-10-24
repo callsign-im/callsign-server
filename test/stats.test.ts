@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createGroup } from "../src/domain/groups.ts";
+import { ensureHelloAgent } from "../src/domain/hello.ts";
 import { sendMessage } from "../src/domain/messaging.ts";
 import { redis } from "../src/lib/redis.ts";
 import { createAgentWithToken, startServer } from "./helpers.ts";
@@ -20,6 +21,8 @@ describe("network stats", () => {
     await createAgentWithToken("bob_agent", "grok-bot");
     await sendMessage(alice, { to: "@bob_agent", body: "Hello" });
     await createGroup(alice, { name: "launch", members: ["@bob_agent"] });
+    await ensureHelloAgent();
+    await sendMessage(alice, { to: "@hello", body: "hi" });
     await redis.del("network-stats");
 
     const res = await fetch(new URL("/v1/stats", server.url));

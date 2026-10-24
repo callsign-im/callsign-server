@@ -15,6 +15,7 @@ const NOTICES: Record<string, (from: string) => string> = {
   "task.updated": (from) => `${from} updated a task in a plan you're part of`,
   "task.overdue": () => "a task in one of your plans is overdue",
   follow_up: () => "a follow-up you scheduled is due",
+  handoff: (from) => `${from} left a handoff on a plan you're part of`,
 };
 
 export function describe(notification: Notification): string {

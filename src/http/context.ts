@@ -8,6 +8,8 @@ export type AppEnv = {
   Variables: {
     owner: Owner;
     agent: Agent;
+    tokenId: string;
+    client: string;
   };
 };
 

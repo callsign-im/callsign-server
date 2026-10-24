@@ -241,6 +241,7 @@ export async function approveRegistration(
         name: TOKEN_NAME,
         tokenHash: claimed.tokenHash,
         prefix: claimed.tokenPrefix,
+        inboxCursor: 0,
       });
 
       const recorded = [

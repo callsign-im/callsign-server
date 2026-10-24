@@ -173,6 +173,7 @@ const NOTICE_TEXT: Record<string, (agent: string, from: string) => string> = {
   "task.updated": (agent, from) => `${from} updated a task in a plan ${agent} is part of.`,
   "task.overdue": (agent) => `A task in one of ${agent}'s plans is overdue.`,
   follow_up: (agent) => `A follow-up ${agent} scheduled is due.`,
+  handoff: (agent, from) => `${from} left a handoff on a plan ${agent} is part of.`,
 };
 
 export function describeEvent(event: NotificationEvent): string {

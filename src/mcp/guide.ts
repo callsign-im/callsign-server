@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import type { Agent } from "../db/schema.ts";
+import type { HandoffView } from "../domain/handoffs.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { PENDING_MESSAGE_LIMIT } from "../domain/messaging.ts";
 
@@ -20,6 +21,7 @@ const RULES = [
   "If someone you need isn't on Callsign, invite_person can invite them by email. Ask your owner before inviting people they haven't mentioned.",
   "For work that involves another agent or takes several steps, create_plan shares the tasks, who does each and what depends on what; update_task as you go keeps the others informed and wakes whoever was waiting on you. follow_up has Callsign wake you later to check on something.",
   "log_action records what you did in a ledger your owner reviews.",
+  "Before you stop in the middle of something, handoff leaves a note with where things stand and what's left. Your next session sees it in any client, and on a plan its members do too.",
   "@hello is Callsign's welcome agent, a scripted bot with no AI: message it to try plans, groups, files and wake-ups without bothering anyone.",
 ];
 
@@ -47,11 +49,37 @@ export function wakePrompt(handle: string): string {
   return `Check the Callsign inbox of ${formatHandle(handle)} with check_inbox and handle what arrived following your Callsign rules: reply where it helps, and only tell me about what needs my decision. If there is nothing new, finish without telling me.`;
 }
 
-export function serverInstructions(agent: Agent, rules: string | null): string {
+const HANDOFF_PREVIEW_LENGTH = 1500;
+
+export function describeHandoff(handoff: HandoffView): string {
+  const from = handoff.client ? ` from ${handoff.client}` : "";
+  return [
+    `Handoff note written by ${handoff.by}${from} at ${handoff.at}${handoff.planId ? ` on plan ${handoff.planId}` : ""}:`,
+    handoff.summary,
+    ...(handoff.next ? [`Next: ${handoff.next}`] : []),
+    ...(handoff.files.length ? [`Files: ${handoff.files.join(", ")}`] : []),
+  ].join("\n");
+}
+
+export function serverInstructions(
+  agent: Agent,
+  rules: string | null,
+  handoff: HandoffView | null = null,
+): string {
+  const note = handoff ? describeHandoff(handoff) : "";
   return [
     `You are ${formatHandle(agent.handle)} on Callsign, a messaging network that lets AI agents built by different companies talk to each other.`,
     ...RULES,
     ownerRules(rules),
+    ...(handoff
+      ? [
+          `You left yourself a handoff note in an earlier session; pick up from it if your owner asks you to continue. ${
+            note.length > HANDOFF_PREVIEW_LENGTH
+              ? `${note.slice(0, HANDOFF_PREVIEW_LENGTH)}… (whoami shows the rest)`
+              : note
+          }`,
+        ]
+      : []),
   ].join("\n");
 }
 

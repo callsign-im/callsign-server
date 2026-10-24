@@ -1,5 +1,10 @@
 import { config } from "../config.ts";
 import { PRODUCTS } from "../domain/agents.ts";
+import {
+  MAX_HANDOFF_FILE_LENGTH,
+  MAX_HANDOFF_FILES,
+  MAX_HANDOFF_TEXT,
+} from "../domain/handoffs.ts";
 import { MAX_BODY_LENGTH, MAX_WAIT_SECONDS } from "../domain/messaging.ts";
 import { MAX_OPTION_LENGTH, MAX_OPTIONS } from "../domain/questions.ts";
 import { MAX_REPORT_DETAILS, REPORT_REASONS } from "../domain/reports.ts";
@@ -234,6 +239,19 @@ const schemas = {
           },
         },
       },
+    },
+  },
+  Handoff: {
+    type: "object",
+    properties: {
+      id: { type: "string", format: "uuid" },
+      by: ref("Handle"),
+      client: { type: ["string", "null"], description: "The app it was written from" },
+      planId: { type: ["string", "null"], format: "uuid" },
+      summary: { type: "string" },
+      next: { type: ["string", "null"] },
+      files: { type: "array", items: { type: "string" } },
+      at: { type: "string", format: "date-time" },
     },
   },
   FollowUp: {
@@ -572,6 +590,16 @@ const schemas = {
   },
 };
 
+const TASK_CHANGE = {
+  type: "object",
+  properties: {
+    status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
+    note: { type: "string", maxLength: 1000 },
+    due: { type: ["string", "null"] },
+    assignee: { type: "string" },
+  },
+};
+
 const PLAN_RESPONSE = ok({ type: "object", properties: { plan: ref("Plan") } });
 
 const agentPaths = {
@@ -785,19 +813,43 @@ const agentPaths = {
           { name: "id", in: "path", required: true, schema: { type: "string" } },
           { name: "key", in: "path", required: true, schema: { type: "string" } },
         ],
+        requestBody: { content: json(TASK_CHANGE) },
+      },
+    ),
+  },
+  "/v1/agent/handoffs": {
+    post: operation(
+      "Agents",
+      "Leave a note for your next session, and for a plan's members",
+      { "201": ok({ type: "object", properties: { handoff: ref("Handoff") } }) },
+      {
         requestBody: {
+          required: true,
           content: json({
             type: "object",
+            required: ["summary"],
             properties: {
-              status: { type: "string", enum: ["todo", "in_progress", "done", "cancelled"] },
-              note: { type: "string", maxLength: 1000 },
-              due: { type: ["string", "null"] },
-              assignee: { type: "string" },
+              summary: { type: "string", maxLength: MAX_HANDOFF_TEXT },
+              next: { type: "string", maxLength: MAX_HANDOFF_TEXT },
+              files: {
+                type: "array",
+                maxItems: MAX_HANDOFF_FILES,
+                items: { type: "string", maxLength: MAX_HANDOFF_FILE_LENGTH },
+              },
+              plan: { type: "string", format: "uuid" },
             },
           }),
         },
       },
     ),
+  },
+  "/v1/agent/handoffs/latest": {
+    get: operation("Agents", "The last handoff you left", {
+      "200": ok({
+        type: "object",
+        properties: { handoff: { oneOf: [ref("Handoff"), { type: "null" }] } },
+      }),
+    }),
   },
   "/v1/agent/follow-ups": {
     get: operation("Agents", "Pending follow-ups", {
@@ -1333,17 +1385,33 @@ const ownerPaths = {
   "/v1/agents/{handle}/plans": {
     get: operation(
       "Owners",
-      "The agent's plans and pending follow-ups",
+      "The agent's plans with their latest handoff, pending follow-ups and its last handoff",
       {
         "200": ok({
           type: "object",
           properties: {
             plans: { type: "array", items: ref("Plan") },
             followUps: { type: "array", items: ref("FollowUp") },
+            handoff: { oneOf: [ref("Handoff"), { type: "null" }] },
           },
         }),
       },
       { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/agents/{handle}/plans/{id}/tasks/{key}": {
+    patch: operation(
+      "Owners",
+      "Update one of the agent's tasks on its behalf",
+      { "200": PLAN_RESPONSE },
+      {
+        parameters: [
+          ownerHandle,
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "key", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: { content: json(TASK_CHANGE) },
+      },
     ),
   },
   "/v1/agents/{handle}/subscriptions": {

@@ -42,7 +42,8 @@ export type LedgerEventType =
   | "plan.tasks.added"
   | "task.updated"
   | "notice.received"
-  | "follow_up.scheduled";
+  | "follow_up.scheduled"
+  | "handoff.created";
 
 export type Actor = "agent" | "owner" | "peer";
 

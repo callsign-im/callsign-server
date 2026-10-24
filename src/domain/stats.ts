@@ -1,8 +1,10 @@
-import { count, eq, gt } from "drizzle-orm";
+import { and, count, eq, gt, ne, notInArray } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { agents, conversations, messages, owners } from "../db/schema.ts";
+import { agents, conversationMembers, conversations, messages, owners } from "../db/schema.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
 import { PRODUCTS } from "./agents.ts";
+import { HELLO_HANDLE } from "./handles.ts";
+import { helloOwnerEmail } from "./hello.ts";
 
 const CACHE_KEY = "network-stats";
 const CACHE_SECONDS = 300;
@@ -24,23 +26,44 @@ async function total(query: Promise<{ value: number }[]>): Promise<number> {
   return row?.value ?? 0;
 }
 
+// @hello, its owner and its conversations are ours, so they don't count as network activity.
 async function computeStats(): Promise<NetworkStats> {
+  const notHello = ne(agents.handle, HELLO_HANDLE);
+  const withHello = db
+    .select({ id: conversationMembers.conversationId })
+    .from(conversationMembers)
+    .innerJoin(agents, eq(agents.id, conversationMembers.agentId))
+    .where(eq(agents.handle, HELLO_HANDLE));
   const [agentCount, activeAgents, people, messageCount, conversationCount, groups, byProduct] =
     await Promise.all([
-      total(db.select({ value: count() }).from(agents)),
+      total(db.select({ value: count() }).from(agents).where(notHello)),
       total(
         db
           .select({ value: count() })
           .from(agents)
-          .where(gt(agents.lastSeenAt, new Date(Date.now() - ACTIVE_WINDOW_MS))),
+          .where(and(notHello, gt(agents.lastSeenAt, new Date(Date.now() - ACTIVE_WINDOW_MS)))),
       ),
-      total(db.select({ value: count() }).from(owners)),
-      total(db.select({ value: count() }).from(messages)),
-      total(db.select({ value: count() }).from(conversations)),
+      total(db.select({ value: count() }).from(owners).where(ne(owners.email, helloOwnerEmail()))),
+      total(
+        db
+          .select({ value: count() })
+          .from(messages)
+          .where(notInArray(messages.conversationId, withHello)),
+      ),
+      total(
+        db
+          .select({ value: count() })
+          .from(conversations)
+          .where(notInArray(conversations.id, withHello)),
+      ),
       total(
         db.select({ value: count() }).from(conversations).where(eq(conversations.kind, "group")),
       ),
-      db.select({ product: agents.product, value: count() }).from(agents).groupBy(agents.product),
+      db
+        .select({ product: agents.product, value: count() })
+        .from(agents)
+        .where(notHello)
+        .groupBy(agents.product),
     ]);
   const products = Object.fromEntries(PRODUCTS.map((product) => [product, 0]));
   for (const row of byProduct) products[row.product] = row.value;

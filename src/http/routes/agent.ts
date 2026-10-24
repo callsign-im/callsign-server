@@ -19,6 +19,13 @@ import {
   respondToGroupInvite,
 } from "../../domain/groups.ts";
 import { listFollowUps, scheduleFollowUp } from "../../domain/follow-ups.ts";
+import {
+  createHandoff,
+  latestHandoff,
+  MAX_HANDOFF_FILE_LENGTH,
+  MAX_HANDOFF_FILES,
+  MAX_HANDOFF_TEXT,
+} from "../../domain/handoffs.ts";
 import { invitePerson } from "../../domain/invitations.ts";
 import {
   addTasks,
@@ -43,7 +50,6 @@ import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../../domain/re
 import { serializeLedgerEvent } from "../../domain/ledger.ts";
 import { waitForNotifications } from "../../domain/notifications.ts";
 import {
-  checkInbox,
   decideContact,
   getConversation,
   inboxSince,
@@ -51,6 +57,7 @@ import {
   lookupAgent,
   MAX_BODY_LENGTH,
   MAX_WAIT_SECONDS,
+  readInbox,
   sendMessage,
   UNTRUSTED_NOTICE,
   waitForInbox,
@@ -143,11 +150,18 @@ const planBody = tasksBody.extend({
   title: z.string().min(1).max(MAX_TITLE_LENGTH),
 });
 
-const taskChangeBody = z.object({
+export const taskChangeBody = z.object({
   status: z.enum(TASK_STATUSES).optional(),
   note: z.string().max(MAX_NOTE_LENGTH).optional(),
   due: z.string().max(40).nullable().optional(),
   assignee: z.string().max(64).optional(),
+});
+
+const handoffBody = z.object({
+  summary: z.string().min(1).max(MAX_HANDOFF_TEXT),
+  next: z.string().max(MAX_HANDOFF_TEXT).optional(),
+  files: z.array(z.string().min(1).max(MAX_HANDOFF_FILE_LENGTH)).max(MAX_HANDOFF_FILES).optional(),
+  plan: z.uuid().optional(),
 });
 
 const followUpBody = z.object({
@@ -219,6 +233,14 @@ export const agentRoutes = new Hono<AppEnv>()
     );
     return c.json({ plan });
   })
+  .post("/v1/agent/handoffs", async (c) => {
+    const input = await parseBody(c, handoffBody);
+    const handoff = await createHandoff(c.get("agent"), input, c.get("client"));
+    return c.json({ handoff }, 201);
+  })
+  .get("/v1/agent/handoffs/latest", async (c) =>
+    c.json({ handoff: await latestHandoff(c.get("agent")) }),
+  )
   .post("/v1/agent/follow-ups", async (c) => {
     const followUp = await scheduleFollowUp(c.get("agent"), await parseBody(c, followUpBody));
     return c.json({ followUp }, 201);
@@ -233,10 +255,11 @@ export const agentRoutes = new Hono<AppEnv>()
   .get("/v1/agent/inbox", async (c) => {
     const { wait, since } = parseWith(inboxQuery, c.req.query());
     const agent = c.get("agent");
+    const tokenId = c.get("tokenId");
     const inbox = wait
-      ? await waitForInbox(agent, wait, { signal: c.req.raw.signal, since })
+      ? await waitForInbox(agent, wait, { signal: c.req.raw.signal, since, tokenId })
       : since === undefined
-        ? await checkInbox(agent)
+        ? await readInbox(agent, tokenId)
         : await inboxSince(agent, since);
     return c.json({ ...inbox, notice: UNTRUSTED_NOTICE });
   })

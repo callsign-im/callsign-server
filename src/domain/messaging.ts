@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm";
 import { db, type Executor, type Tx } from "../db/client.ts";
 import {
+  agentTokens,
   agents,
   conversationMembers,
   conversations,
@@ -739,13 +740,73 @@ export async function inboxSince(agent: Agent, since: number): Promise<Inbox> {
   };
 }
 
+function mergeInboxes(first: Inbox, second: Inbox): Inbox {
+  const threads = new Map(first.threads.map((thread) => [thread.conversationId, thread]));
+  for (const thread of second.threads) {
+    const existing = threads.get(thread.conversationId);
+    if (!existing) {
+      threads.set(thread.conversationId, thread);
+      continue;
+    }
+    const seen = new Set(existing.messages.map((message) => message.id));
+    threads.set(thread.conversationId, {
+      ...existing,
+      kind: existing.kind === "message" ? thread.kind : existing.kind,
+      mentioned: existing.mentioned || thread.mentioned,
+      messages: [...existing.messages, ...thread.messages.filter((m) => !seen.has(m.id))].sort(
+        (a, b) => a.seq - b.seq,
+      ),
+    });
+  }
+  const answered = new Set(first.ownerAnswers.map((answer) => answer.questionId));
+  const noticed = new Set(first.notices.map((notice) => notice.id));
+  return {
+    threads: [...threads.values()],
+    ownerAnswers: [
+      ...first.ownerAnswers,
+      ...second.ownerAnswers.filter((answer) => !answered.has(answer.questionId)),
+    ],
+    notices: [...first.notices, ...second.notices.filter((notice) => !noticed.has(notice.id))],
+    hasMore: first.hasMore || second.hasMore,
+    rules: first.rules,
+    cursor: first.cursor,
+  };
+}
+
+// Each connection (an OAuth sign-in or a token) keeps its own place in the inbox, so an agent
+// running in two clients gets every new message in both: whatever arrived since the connection
+// last read, plus anything older that no connection has read yet.
+export async function readInbox(agent: Agent, tokenId: string | undefined): Promise<Inbox> {
+  if (!tokenId) return checkInbox(agent);
+  const [token] = await db
+    .select({ cursor: agentTokens.inboxCursor })
+    .from(agentTokens)
+    .where(eq(agentTokens.id, tokenId));
+  const cursor = token?.cursor ?? null;
+  const inbox =
+    cursor === null
+      ? await checkInbox(agent)
+      : mergeInboxes(await inboxSince(agent, cursor), await checkInbox(agent));
+  if (cursor !== null || !inbox.hasMore) {
+    await db
+      .update(agentTokens)
+      .set({ inboxCursor: sql`greatest(coalesce(${agentTokens.inboxCursor}, 0), ${inbox.cursor})` })
+      .where(eq(agentTokens.id, tokenId));
+  }
+  return inbox;
+}
+
 // Live events wake a waiting agent at once; polling covers events lost while Valkey is down.
 export async function waitForInbox(
   agent: Agent,
   seconds: number,
-  options: { signal?: AbortSignal | undefined; since?: number | undefined } = {},
+  options: {
+    signal?: AbortSignal | undefined;
+    since?: number | undefined;
+    tokenId?: string | undefined;
+  } = {},
 ): Promise<Inbox> {
-  const { signal, since } = options;
+  const { signal, since, tokenId } = options;
   const deadline = Date.now() + Math.min(seconds, MAX_WAIT_SECONDS) * 1000;
   const handle = formatHandle(agent.handle);
   let wakes = 0;
@@ -763,7 +824,8 @@ export async function waitForInbox(
   try {
     for (;;) {
       const seen = wakes;
-      const inbox = since === undefined ? await checkInbox(agent) : await inboxSince(agent, since);
+      const inbox =
+        since === undefined ? await readInbox(agent, tokenId) : await inboxSince(agent, since);
       const remaining = deadline - Date.now();
       const arrived =
         inbox.threads.length > 0 || inbox.ownerAnswers.length > 0 || inbox.notices.length > 0;

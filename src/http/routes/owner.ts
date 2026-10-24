@@ -28,12 +28,13 @@ import { deleteContact, listContacts, saveContact, updateContact } from "../../d
 import { readFile } from "../../domain/files.ts";
 import { listFollowUps } from "../../domain/follow-ups.ts";
 import { leaveGroup } from "../../domain/groups.ts";
+import { latestHandoff, planHandoffs } from "../../domain/handoffs.ts";
 import { organizationDomain } from "../../domain/identity.ts";
 import { connectInvitations } from "../../domain/invitations.ts";
 import { answerQuestion, listOwnerQuestions } from "../../domain/questions.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
-import { listPlans } from "../../domain/plans.ts";
+import { listPlans, updateTask } from "../../domain/plans.ts";
 import { createTelegramLink, unlinkTelegram } from "../../domain/telegram.ts";
 import { isAdmin, reportAgent } from "../../domain/reports.ts";
 import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
@@ -42,7 +43,7 @@ import { subscribeToOwner } from "../../lib/events.ts";
 import { checkInPrompt, customInstructions, memoryNote, wakePrompt } from "../../mcp/guide.ts";
 import { clearSessionCookie, requireOwner } from "../auth.ts";
 import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
-import { reportBody } from "./agent.ts";
+import { reportBody, taskChangeBody } from "./agent.ts";
 import { answerBody } from "./public.ts";
 
 const descriptionField = z.string().max(MAX_DESCRIPTION_LENGTH);
@@ -200,7 +201,28 @@ export const ownerRoutes = new Hono<AppEnv>()
   })
   .get("/v1/agents/:handle/plans", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
-    return c.json({ plans: await listPlans(agent), followUps: await listFollowUps(agent) });
+    const plans = await listPlans(agent);
+    const [followUps, latest, byPlan] = await Promise.all([
+      listFollowUps(agent),
+      latestHandoff(agent),
+      planHandoffs(plans.map((plan) => plan.id)),
+    ]);
+    return c.json({
+      plans: plans.map((plan) => ({ ...plan, handoff: byPlan.get(plan.id) ?? null })),
+      followUps,
+      handoff: latest,
+    });
+  })
+  .patch("/v1/agents/:handle/plans/:id/tasks/:key", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    const plan = await updateTask(
+      agent,
+      parseWith(z.uuid(), c.req.param("id")),
+      parseWith(z.string().min(1).max(32), c.req.param("key")),
+      await parseBody(c, taskChangeBody),
+      "owner",
+    );
+    return c.json({ plan });
   })
   .get("/v1/agents/:handle/subscriptions", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));

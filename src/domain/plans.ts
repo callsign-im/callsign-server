@@ -73,7 +73,7 @@ export type PlanView = {
   tasks: TaskView[];
 };
 
-const titleContext = (planId: string) => `plans.title:${planId}`;
+export const titleContext = (planId: string) => `plans.title:${planId}`;
 const taskContext = (planId: string, key: string, field: "title" | "details" | "note") =>
   `plan_tasks.${field}:${planId}:${key}`;
 
@@ -261,7 +261,7 @@ function taskLine(draft: { key: string; title: string; dueAt: Date | null }, wai
   return `${quoted(draft.key, draft.title)} (${state}${draft.dueAt ? `, due ${formatDue(draft.dueAt)}` : ""})`;
 }
 
-async function loadPlan(agent: Agent, planId: string) {
+export async function loadPlan(agent: Agent, planId: string) {
   const [plan] = await db.select().from(plans).where(eq(plans.id, planId));
   if (!plan) throw new AppError("not_found", "Plan not found.");
   const [conversation] = await db
@@ -542,6 +542,7 @@ export async function updateTask(
   planId: string,
   rawKey: string,
   change: TaskChange,
+  by: "agent" | "owner" = "agent",
 ): Promise<PlanView> {
   await rateLimit(`plan-updates:${agent.id}`, 240, 3600);
   const { plan, conversation, members, tasks, key } = await loadPlan(agent, planId);
@@ -582,7 +583,8 @@ export async function updateTask(
   const after = before.map((t) => (t.key === task.key ? { ...t, status } : t));
   const planTitle = key.open(plan.title, titleContext(plan.id)) ?? "";
   const title = (t: PlanTask) => key.open(t.title, taskContext(plan.id, t.key, "title")) ?? "";
-  const actor = formatHandle(agent.handle);
+  const actor =
+    by === "owner" ? `${formatHandle(agent.handle)}'s owner` : formatHandle(agent.handle);
   const noteText = note ? `: "${note}"` : "";
   const byId = new Map(members.map((m) => [m.id, m]));
 
@@ -658,7 +660,7 @@ export async function updateTask(
     return [
       await appendLedgerEvent(tx, agent, {
         type: "task.updated",
-        actor: "agent",
+        actor: by,
         conversationId: plan.conversationId,
         data: {
           planId: plan.id,

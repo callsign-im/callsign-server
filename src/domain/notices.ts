@@ -9,7 +9,13 @@ import { appendLedgerEvent, type RecordedEvent } from "./ledger.ts";
 import { notify } from "./notifications.ts";
 
 export type NoticeKind =
-  "plan.shared" | "task.assigned" | "task.ready" | "task.updated" | "task.overdue" | "follow_up";
+  | "plan.shared"
+  | "task.assigned"
+  | "task.ready"
+  | "task.updated"
+  | "task.overdue"
+  | "follow_up"
+  | "handoff";
 
 export type NoticeView = {
   id: string;

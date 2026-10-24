@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, isNull, lt, lte, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { config } from "../config.ts";
 import { db, type Executor, type Tx } from "../db/client.ts";
 import {
@@ -289,6 +289,11 @@ export async function updateAgent(
   return updated;
 }
 
+// New connections start reading the inbox from the agent's current ledger position.
+export function currentLedgerSeq(agentId: string) {
+  return sql<number>`(select ${agents.ledgerSeq} from ${agents} where ${agents.id} = ${agentId})`;
+}
+
 export async function createAgentToken(
   agent: Agent,
   name: string,
@@ -303,6 +308,7 @@ export async function createAgentToken(
         name: name.trim() || "Default",
         tokenHash: sha256(token),
         prefix: token.slice(0, 12),
+        inboxCursor: currentLedgerSeq(agent.id),
       })
       .returning();
     if (!record) throw new Error("token insert returned no row");
@@ -365,10 +371,15 @@ export async function authenticateAgentToken(token: string): Promise<Agent | nul
 
 export async function authenticateAgentCredential(
   token: string,
-): Promise<{ agent: Agent; tokenId: string } | null> {
+): Promise<{ agent: Agent; tokenId: string; client: string } | null> {
   if (!token.startsWith("csk_")) return null;
   const [row] = await db
-    .select({ agent: agents, tokenId: agentTokens.id, lastUsedAt: agentTokens.lastUsedAt })
+    .select({
+      agent: agents,
+      tokenId: agentTokens.id,
+      client: agentTokens.name,
+      lastUsedAt: agentTokens.lastUsedAt,
+    })
     .from(agentTokens)
     .innerJoin(agents, eq(agents.id, agentTokens.agentId))
     .where(
@@ -394,7 +405,7 @@ export async function authenticateAgentCredential(
         ),
       );
   }
-  return { agent: row.agent, tokenId: row.tokenId };
+  return { agent: row.agent, tokenId: row.tokenId, client: row.client };
 }
 
 export function mcpUrl(): string {

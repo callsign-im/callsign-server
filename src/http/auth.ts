@@ -50,7 +50,7 @@ export async function agentFromToken(token: string | undefined): Promise<Agent> 
 
 export async function agentCredential(
   token: string | undefined,
-): Promise<{ agent: Agent; tokenId: string }> {
+): Promise<{ agent: Agent; tokenId: string; client: string }> {
   const credential = token ? await authenticateAgentCredential(token) : null;
   if (credential?.agent.suspendedAt) {
     throw new AppError(
@@ -71,6 +71,9 @@ export async function agentCredential(
 }
 
 export const requireAgent = createMiddleware<AppEnv>(async (c, next) => {
-  c.set("agent", await agentFromToken(bearerToken(c)));
+  const { agent, tokenId, client } = await agentCredential(bearerToken(c));
+  c.set("agent", agent);
+  c.set("tokenId", tokenId);
+  c.set("client", client);
   await next();
 });
