@@ -51,7 +51,7 @@ export function createApp() {
     cors({
       origin: (origin, c) => {
         if (origin === appOrigin) return origin;
-        const open = ["/v1/agent/", "/v1/register", "/v1/handles/"].some((p) =>
+        const open = ["/v1/agent/", "/v1/register", "/v1/handles/", "/v1/stats"].some((p) =>
           c.req.path.startsWith(p),
         );
         return open ? "*" : null;

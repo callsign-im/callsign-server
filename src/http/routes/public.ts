@@ -5,6 +5,7 @@ import { handleAvailability, publicProfile } from "../../domain/agents.ts";
 import { formatHandle } from "../../domain/handles.ts";
 import { acceptInvitations, invitationPreview } from "../../domain/invitations.ts";
 import { requestLogin, revokeSession, verifyLogin } from "../../domain/owners.ts";
+import { networkStats } from "../../domain/stats.ts";
 import { redis } from "../../lib/redis.ts";
 import { clearSessionCookie, sessionToken, setSessionCookie } from "../auth.ts";
 import { clientIp, parseBody, parseWith, type AppEnv } from "../context.ts";
@@ -20,6 +21,9 @@ export const publicRoutes = new Hono<AppEnv>()
     const ready = checks.database === "ok";
     return c.json({ status: ready ? "ok" : "unavailable", checks }, ready ? 200 : 503);
   })
+  .get("/v1/stats", async (c) =>
+    c.json(await networkStats(), 200, { "cache-control": "public, max-age=300" }),
+  )
   .get("/v1/handles/:handle", async (c) => {
     const { handle, status, agent, availableAt } = await handleAvailability(c.req.param("handle"));
     return c.json({

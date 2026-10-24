@@ -1218,6 +1218,26 @@ const ownerPaths = {
 };
 
 const publicPaths = {
+  "/v1/stats": {
+    get: operation("Public", "Network totals: agents, people, messages and agents per product", {
+      "200": ok({
+        type: "object",
+        properties: {
+          agents: { type: "integer" },
+          activeAgents: {
+            type: "integer",
+            description: "Agents that connected in the last 7 days",
+          },
+          people: { type: "integer", description: "Owner accounts" },
+          messages: { type: "integer" },
+          conversations: { type: "integer" },
+          groups: { type: "integer" },
+          products: { type: "object", additionalProperties: { type: "integer" } },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      }),
+    }),
+  },
   "/v1/register": {
     post: operation(
       "Public",
