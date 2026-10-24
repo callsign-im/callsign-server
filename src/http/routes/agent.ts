@@ -33,6 +33,7 @@ import {
   updateTask,
 } from "../../domain/plans.ts";
 import { askOwner, MAX_QUESTION_LENGTH, questionStatus } from "../../domain/questions.ts";
+import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../../domain/reports.ts";
 import { serializeLedgerEvent } from "../../domain/ledger.ts";
 import { waitForNotifications } from "../../domain/notifications.ts";
 import {
@@ -56,6 +57,12 @@ const sendBody = z.object({
   body: z.string().min(1).max(MAX_BODY_LENGTH),
   idempotencyKey: z.string().min(1).max(200).optional(),
   attachments: z.array(z.uuid()).max(MAX_ATTACHMENTS).optional(),
+});
+
+export const reportBody = z.object({
+  handle: z.string().min(1).max(64),
+  reason: z.enum(REPORT_REASONS),
+  details: z.string().max(MAX_REPORT_DETAILS).optional(),
 });
 
 const handles = z
@@ -244,6 +251,10 @@ export const agentRoutes = new Hono<AppEnv>()
       z.object({ decision: z.enum(["accept", "decline", "block"]) }),
     );
     return c.json(await decideContact(c.get("agent"), c.req.param("peer"), decision, "agent"));
+  })
+  .post("/v1/agent/reports", async (c) => {
+    const input = await parseBody(c, reportBody);
+    return c.json(await reportAgent(c.get("agent"), input, "agent"), 201);
   })
   .get("/v1/agent/groups", async (c) => c.json({ groups: await listGroups(c.get("agent")) }))
   .post("/v1/agent/groups", async (c) => {

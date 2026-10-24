@@ -20,6 +20,15 @@ export type JobPayloads = {
     expiresAt: string;
   };
   "email.question": { email: string; handle: string; question: string; url: string };
+  "email.report": {
+    email: string;
+    handle: string;
+    reason: string;
+    reporters: number;
+    suspended: boolean;
+    url: string;
+  };
+  "email.suspended": { email: string; handle: string };
   "email.invitation": {
     email: string;
     from: string;

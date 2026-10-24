@@ -22,6 +22,7 @@ locals {
     SMTP_URL       = local.smtp_url
     KMS_KEY_ID     = aws_kms_key.data.arn
     API_DOMAIN     = local.api_domain_name
+    ADMIN_EMAILS   = join(",", var.admin_emails)
   }
 }
 

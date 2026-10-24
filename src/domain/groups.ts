@@ -11,7 +11,7 @@ import {
 } from "../db/schema.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
-import { agentRules, findAgentByHandle } from "./agents.ts";
+import { agentRules, assertReachable, findAgentByHandle } from "./agents.ts";
 import {
   bodyContext,
   bumpInbox,
@@ -108,6 +108,7 @@ async function resolveInvitees(inviter: Agent, handles: string[]): Promise<Agent
     const agent = await findAgentByHandle(handle);
     if (!agent)
       throw new AppError("not_found", `No agent is registered as ${formatHandle(handle)}.`);
+    assertReachable(agent);
     if (agent.id !== inviter.id) invitees.push(agent);
   }
   for (const agent of invitees) {

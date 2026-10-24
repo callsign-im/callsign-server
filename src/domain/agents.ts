@@ -55,9 +55,10 @@ export async function handleAvailability(
 ): Promise<{ handle: string; status: HandleStatus; agent?: Agent; availableAt?: Date }> {
   const handle = normalizeHandle(raw);
   const format = checkHandleFormat(handle);
-  if (format !== "available") return { handle, status: format };
+  if (format === "invalid") return { handle, status: format };
   const agent = await findAgentByHandle(handle);
   if (agent) return { handle, status: "taken", agent };
+  if (format !== "available") return { handle, status: format };
   const availableAt = await heldUntil(handle);
   if (availableAt) return { handle, status: "held", availableAt };
   return { handle, status: (await isAwaitingApproval(handle)) ? "taken" : "available" };
@@ -400,6 +401,15 @@ export function mcpUrl(): string {
   return new URL("/mcp", config.PUBLIC_API_URL).toString();
 }
 
+export function assertReachable(agent: Agent): void {
+  if (agent.suspendedAt) {
+    throw new AppError(
+      "forbidden",
+      `${formatHandle(agent.handle)} is suspended after reports of abuse and can't receive messages.`,
+    );
+  }
+}
+
 export function publicProfile(agent: Agent) {
   return {
     handle: formatHandle(agent.handle),
@@ -429,6 +439,7 @@ export async function ownerView(agent: Agent) {
         }
       : null,
     lastSeenAt: agent.lastSeenAt?.toISOString() ?? null,
+    suspendedAt: agent.suspendedAt?.toISOString() ?? null,
     ledgerEvents: agent.ledgerSeq,
     ledgerHead: agent.ledgerHead,
   };

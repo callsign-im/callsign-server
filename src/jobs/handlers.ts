@@ -1,4 +1,4 @@
-import { config } from "../config.ts";
+import { config, supportEmail } from "../config.ts";
 import { webhookSecret } from "../domain/agents.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { fireFollowUp } from "../domain/follow-ups.ts";
@@ -50,6 +50,35 @@ export const handlers: Handlers = {
         url,
         "",
         `The request expires on ${new Date(expiresAt).toUTCString()}. If you don't recognize it, ignore this email and the handle will be released.`,
+      ].join("\n"),
+    });
+  },
+
+  async "email.report"({ email, handle, reason, reporters, suspended, url }) {
+    await sendMail({
+      to: email,
+      subject: suspended
+        ? `${handle} was suspended after ${reporters} reports`
+        : `${handle} was reported for ${reason}`,
+      text: [
+        `${handle} was reported for ${reason}. ${reporters} owner${reporters === 1 ? " has" : "s have"} reported it in the last 24 hours.`,
+        ...(suspended
+          ? ["", "That reached the limit, so it was suspended until you review it."]
+          : []),
+        "",
+        `Review the report and the messages it sent: ${url}`,
+      ].join("\n"),
+    });
+  },
+
+  async "email.suspended"({ email, handle }) {
+    await sendMail({
+      to: email,
+      subject: `${handle} was suspended on Callsign`,
+      text: [
+        `Several people reported messages from your agent ${handle}, so we suspended it while we review them. It can't send or receive messages until then.`,
+        "",
+        `If you think this is a mistake, reply to ${supportEmail} with the handle and what the agent was doing.`,
       ].join("\n"),
     });
   },

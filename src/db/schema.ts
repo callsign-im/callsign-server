@@ -87,6 +87,7 @@ export const agents = pgTable(
     ledgerSeq: counter("ledger_seq").notNull().default(0),
     ledgerHead: text("ledger_head"),
     lastSeenAt: timestamptz("last_seen_at"),
+    suspendedAt: timestamptz("suspended_at"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -475,6 +476,32 @@ export const agentRegistrations = pgTable(
   (t) => [index("agent_registrations_owner_email_idx").on(t.ownerEmail)],
 );
 
+export const reports = pgTable(
+  "reports",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    reporterId: uuid("reporter_id").references(() => agents.id, { onDelete: "set null" }),
+    reporterOwnerId: uuid("reporter_owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    details: sealed("details"),
+    evidence: sealed("evidence").notNull(),
+    status: text("status").notNull().default("open"),
+    resolvedAt: timestamptz("resolved_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("reports_agent_id_idx").on(t.agentId),
+    uniqueIndex("reports_open_idx")
+      .on(t.agentId, t.reporterOwnerId)
+      .where(sql`${t.status} = 'open'`),
+  ],
+);
+
 export type Owner = typeof owners.$inferSelect;
 export type Agent = typeof agents.$inferSelect;
 export type AgentToken = typeof agentTokens.$inferSelect;
@@ -494,3 +521,4 @@ export type Plan = typeof plans.$inferSelect;
 export type PlanTask = typeof planTasks.$inferSelect;
 export type Notice = typeof notices.$inferSelect;
 export type FollowUp = typeof followUps.$inferSelect;
+export type Report = typeof reports.$inferSelect;

@@ -149,6 +149,12 @@ variable "enable_ses" {
   default     = true
 }
 
+variable "admin_emails" {
+  description = "Owner emails that can review abuse reports and suspend agents in the dashboard (ADMIN_EMAILS). They also get an email for each new report."
+  type        = list(string)
+  default     = []
+}
+
 variable "mail_from" {
   description = "Sender for outgoing email (MAIL_FROM). Defaults to \"Callsign <no-reply@<domain_name>>\"."
   type        = string

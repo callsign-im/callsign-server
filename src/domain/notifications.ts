@@ -60,6 +60,7 @@ export type Alert = {
 };
 
 export async function notify(tx: Tx, recipient: Agent, job: AgentNotification): Promise<void> {
+  if (recipient.suspendedAt) return;
   if (recipient.handle === HELLO_HANDLE) await enqueue(tx, "hello.reply", job);
   if (recipient.webhookUrl) await enqueue(tx, "agent.webhook", job);
   if (recipient.notifyEmail) await enqueue(tx, "agent.email", job);

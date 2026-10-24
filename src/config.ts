@@ -16,6 +16,16 @@ const schema = z.object({
   KMS_KEY_ID: z.string().min(1).optional(),
   ENCRYPTION_KEY: z.base64().optional(),
   ALLOW_PRIVATE_WEBHOOKS: z.stringbool().default(false),
+  SUPPORT_EMAIL: z.email().optional(),
+  ADMIN_EMAILS: z
+    .string()
+    .default("")
+    .transform((raw) =>
+      raw
+        .split(",")
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    ),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -24,3 +34,5 @@ export const config: Config = schema.parse(process.env);
 
 export const isProduction = config.NODE_ENV === "production";
 export const usesHttps = config.PUBLIC_API_URL.startsWith("https://");
+export const siteDomain = new URL(config.SITE_URL).hostname.replace(/^www\./, "");
+export const supportEmail = config.SUPPORT_EMAIL ?? `support@${siteDomain}`;

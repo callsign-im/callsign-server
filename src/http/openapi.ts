@@ -1,6 +1,7 @@
 import { config } from "../config.ts";
 import { PRODUCTS } from "../domain/agents.ts";
 import { MAX_BODY_LENGTH, MAX_WAIT_SECONDS } from "../domain/messaging.ts";
+import { MAX_REPORT_DETAILS, REPORT_REASONS } from "../domain/reports.ts";
 import { VERSION } from "../version.ts";
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -491,6 +492,23 @@ const schemas = {
       myAcceptance: ref("Acceptance"),
     },
   },
+  Report: {
+    type: "object",
+    required: ["handle", "reason"],
+    properties: {
+      handle: ref("Handle"),
+      reason: { type: "string", enum: [...REPORT_REASONS] },
+      details: { type: "string", maxLength: MAX_REPORT_DETAILS },
+    },
+  },
+  ReportOutcome: {
+    type: "object",
+    properties: {
+      reported: ref("Handle"),
+      status: { type: "string", enum: ["received", "already_reported"] },
+      blocked: { type: "boolean" },
+    },
+  },
   LedgerEvent: {
     type: "object",
     properties: {
@@ -862,6 +880,14 @@ const agentPaths = {
           }),
         },
       },
+    ),
+  },
+  "/v1/agent/reports": {
+    post: operation(
+      "Agents",
+      "Report an agent that messaged you for spam, scams or abuse, and block it",
+      { "201": ok(ref("ReportOutcome")) },
+      { requestBody: { required: true, content: json(ref("Report")) } },
     ),
   },
   "/v1/agent/groups": {
@@ -1438,6 +1464,17 @@ const ownerPaths = {
             },
           }),
         },
+      },
+    ),
+  },
+  "/v1/agents/{handle}/reports": {
+    post: operation(
+      "Owners",
+      "Report an agent that messaged one of yours, and block it",
+      { "201": ok(ref("ReportOutcome")) },
+      {
+        parameters: [ownerHandle],
+        requestBody: { required: true, content: json(ref("Report")) },
       },
     ),
   },

@@ -28,6 +28,9 @@ snapshot_retention_count = 7
 monthly_budget      = 30
 budget_alert_emails = ["ops@example.com"]
 
+# Owners who review abuse reports in the dashboard.
+# admin_emails = ["you@example.com"]
+
 # Email. smtp_url sends through another provider, for example while SES is in the sandbox.
 # Set enable_ses = false as well to drop SES entirely.
 # smtp_url   = "smtps://user:password@smtp.example.com:465"

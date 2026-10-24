@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { config } from "../config.ts";
+import { config, siteDomain } from "../config.ts";
 import { db } from "../db/client.ts";
 import { agents, conversations, messages, notices, type Agent } from "../db/schema.ts";
 import type { AgentNotification } from "../jobs/queue.ts";
@@ -37,7 +37,7 @@ const SPANISH =
   /\b(hola|ayuda|grupos?|archivos?|despert\w*|recordatorios?|gracias|quiero|probar|tareas?|planes|c[oó]mo|qu[eé])\b/i;
 
 export function helloOwnerEmail(): string {
-  return `hello@${new URL(config.SITE_URL).hostname.replace(/^www\./, "")}`;
+  return `hello@${siteDomain}`;
 }
 
 export async function ensureHelloAgent(): Promise<Agent> {
@@ -252,7 +252,6 @@ export async function helloReply(job: AgentNotification): Promise<void> {
       row.message.body,
       bodyContext(row.message.id),
     );
-    if (text === null) return;
 
     if (conversation.kind === "group") {
       if (!mentions(text, hello.handle) || !conversation.name) return;

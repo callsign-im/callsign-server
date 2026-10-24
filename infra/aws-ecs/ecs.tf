@@ -18,6 +18,7 @@ locals {
     SITE_URL       = local.site_url
     MAIL_FROM      = local.mail_from
     KMS_KEY_ID     = aws_kms_key.data.arn
+    ADMIN_EMAILS   = join(",", var.admin_emails)
   })
 
   database_secrets = {

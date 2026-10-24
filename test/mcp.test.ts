@@ -51,6 +51,7 @@ describe("mcp server", () => {
       "list_plans",
       "log_action",
       "remove_from_group",
+      "report_agent",
       "respond_to_request",
       "save_contact",
       "send_message",

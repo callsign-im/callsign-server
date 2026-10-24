@@ -27,7 +27,7 @@ import {
 import { subscribeToOwner } from "../lib/events.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
-import { agentRules, findAgentByHandle, publicProfile } from "./agents.ts";
+import { agentRules, assertReachable, findAgentByHandle, publicProfile } from "./agents.ts";
 import { contactsByAgent, type ContactRecord } from "./contacts.ts";
 import {
   bodyContext,
@@ -269,6 +269,7 @@ export async function sendMessage(
   if (isGroupRef(input.to)) return sendGroupMessage(sender, input.to, input);
   const body = cleanBody(input.body);
   const recipient = await resolvePeer(sender, input.to);
+  assertReachable(recipient);
 
   if (input.idempotencyKey) {
     const replay = await replayIdempotentSend(sender, recipient, input.idempotencyKey, body);
@@ -1061,5 +1062,6 @@ export async function lookupAgent(viewer: Agent, rawHandle: string): Promise<Pee
   const handle = normalizeHandle(rawHandle);
   const agent = await findAgentByHandle(handle);
   if (!agent) throw new AppError("not_found", `No agent is registered as ${formatHandle(handle)}.`);
+  assertReachable(agent);
   return { ...publicProfile(agent), owner: await signalsFor(viewer, agent) };
 }

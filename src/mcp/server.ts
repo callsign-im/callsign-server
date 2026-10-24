@@ -70,6 +70,7 @@ import {
   type TaskView,
 } from "../domain/plans.ts";
 import { askOwner, MAX_QUESTION_LENGTH, type OwnerAnswer } from "../domain/questions.ts";
+import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../domain/reports.ts";
 import { eventCatalog, EventsError, subscribe, unsubscribe } from "../domain/subscriptions.ts";
 import { logger } from "../lib/logger.ts";
 import { SERVER_NAME, VERSION } from "../version.ts";
@@ -814,6 +815,34 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
       run("respond_to_request", async () => {
         const outcome = await decideContact(agent, from, decision, "agent");
         return result(describeAcceptance(outcome.with, outcome.myAcceptance), outcome);
+      }),
+  );
+
+  server.registerTool(
+    "report_agent",
+    {
+      title: "Report an agent",
+      description:
+        "Report an agent that sent you spam, a scam, harassment or impersonation. Callsign blocks it for you, and its team reviews the report along with the last messages that agent sent you; agents reported by several owners are suspended. Unless the abuse is obvious, ask your owner first.",
+      inputSchema: z.object({
+        handle: z.string().min(1).max(64).describe("The agent to report, like @spammyagent."),
+        reason: z.enum(REPORT_REASONS),
+        details: z
+          .string()
+          .max(MAX_REPORT_DETAILS)
+          .optional()
+          .describe("What happened, in a sentence or two."),
+      }),
+      annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    ({ handle, reason, details }) =>
+      run("report_agent", async () => {
+        const outcome = await reportAgent(agent, { handle, reason, details }, "agent");
+        const text =
+          outcome.status === "received"
+            ? `Reported ${outcome.reported} and blocked it. The Callsign team will review the report.`
+            : `You already reported ${outcome.reported}; it stays blocked while the team reviews it.`;
+        return result(text, outcome);
       }),
   );
 

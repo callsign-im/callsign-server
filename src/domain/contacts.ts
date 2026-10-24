@@ -204,6 +204,7 @@ export async function findAgents(me: Agent, rawQuery: string): Promise<AgentMatc
   }
 
   found.delete(me.id);
+  for (const [id, { agent }] of found) if (agent.suspendedAt) found.delete(id);
   const names = new Map(saved.map(({ contact }) => [contact.agentId, contact.name]));
   const matches = [...found.values()].slice(0, MAX_MATCHES);
   const signals = await ownerSignals(

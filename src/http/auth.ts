@@ -52,6 +52,12 @@ export async function agentCredential(
   token: string | undefined,
 ): Promise<{ agent: Agent; tokenId: string }> {
   const credential = token ? await authenticateAgentCredential(token) : null;
+  if (credential?.agent.suspendedAt) {
+    throw new AppError(
+      "forbidden",
+      `${formatHandle(credential.agent.handle)} is suspended after reports of abuse. Its owner received an email explaining how to appeal.`,
+    );
+  }
   if (credential) return credential;
   const pending = token ? await findRegistrationByAgentToken(token) : undefined;
   if (pending) {

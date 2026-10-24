@@ -34,12 +34,14 @@ import { answerQuestion, listOwnerQuestions } from "../../domain/questions.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
 import { listPlans } from "../../domain/plans.ts";
+import { isAdmin, reportAgent } from "../../domain/reports.ts";
 import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
 import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
 import { checkInPrompt, customInstructions, memoryNote, wakePrompt } from "../../mcp/guide.ts";
 import { clearSessionCookie, requireOwner } from "../auth.ts";
 import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
+import { reportBody } from "./agent.ts";
 
 const descriptionField = z.string().max(MAX_DESCRIPTION_LENGTH);
 
@@ -136,7 +138,11 @@ export const ownerRoutes = new Hono<AppEnv>()
   .get("/v1/me", (c) => {
     const owner = c.get("owner");
     return c.json({
-      owner: { ...ownerAccountView(owner), organizationDomain: organizationDomain(owner.email) },
+      owner: {
+        ...ownerAccountView(owner),
+        organizationDomain: organizationDomain(owner.email),
+        admin: isAdmin(owner),
+      },
     });
   })
   .patch("/v1/me", async (c) => {
@@ -238,6 +244,10 @@ export const ownerRoutes = new Hono<AppEnv>()
       z.object({ action: z.enum(["accept", "decline", "block", "unblock"]) }),
     );
     return c.json(await decideContact(agent, c.req.param("peer"), action, "owner"));
+  })
+  .post("/v1/agents/:handle/reports", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    return c.json(await reportAgent(agent, await parseBody(c, reportBody), "owner"), 201);
   })
   .get("/v1/agents/:handle/files/:id", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
