@@ -34,10 +34,15 @@ export function bridgeOwnerEmail(): string {
   return `bridge@${siteDomain}`;
 }
 
-export function emailAddressOf(agent: Agent): string | null {
-  return emailBridgeEnabled() && agent.emailBridge && !isEmailHandle(agent.handle)
+// The address the agent would have, whether or not its owner turned email on.
+export function bridgeAddress(agent: Agent): string | null {
+  return emailBridgeEnabled() && !isEmailHandle(agent.handle)
     ? `${agent.handle}@${config.EMAIL_BRIDGE_DOMAIN}`
     : null;
+}
+
+export function emailAddressOf(agent: Agent): string | null {
+  return agent.emailBridge ? bridgeAddress(agent) : null;
 }
 
 export async function replyToken(agent: Agent, email: string): Promise<string> {

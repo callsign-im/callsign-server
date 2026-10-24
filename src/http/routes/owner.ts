@@ -28,7 +28,7 @@ import {
 import { deleteContact, listContacts, saveContact, updateContact } from "../../domain/contacts.ts";
 import { readFile } from "../../domain/files.ts";
 import { listFollowUps } from "../../domain/follow-ups.ts";
-import { emailAddressOf } from "../../domain/email-bridge.ts";
+import { bridgeAddress } from "../../domain/email-bridge.ts";
 import { leaveGroup } from "../../domain/groups.ts";
 import { latestHandoff, planHandoffs } from "../../domain/handoffs.ts";
 import { organizationDomain } from "../../domain/identity.ts";
@@ -83,7 +83,7 @@ const updateAgentBody = z.object({
 });
 
 async function detailView(agent: Agent) {
-  return { ...(await ownerView(agent)), emailAddress: emailAddressOf(agent) };
+  return { ...(await ownerView(agent)), emailAddress: bridgeAddress(agent) };
 }
 
 const ownerContactBody = z.object({
