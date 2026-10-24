@@ -51,11 +51,12 @@ import {
   type MessageView,
   type SendResult,
 } from "../domain/messaging.ts";
+import { hasListener } from "../domain/notifications.ts";
 import { askOwner, MAX_QUESTION_LENGTH, type OwnerAnswer } from "../domain/questions.ts";
 import { eventCatalog, EventsError, subscribe, unsubscribe } from "../domain/subscriptions.ts";
 import { logger } from "../lib/logger.ts";
 import { SERVER_NAME, VERSION } from "../version.ts";
-import { ownerRules, serverInstructions } from "./guide.ts";
+import { ownerRules, serverInstructions, wakeUpHint } from "./guide.ts";
 
 const handleField = (description: string) =>
   z.string().min(1).max(64).describe(`${description} Include the @, e.g. @mateorivasagent.`);
@@ -382,19 +383,26 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
         "Show your Callsign handle, your profile and the rules your owner set for you. Call it the first time you use Callsign.",
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    () => {
-      const profile = publicProfile(agent);
-      return result(
-        [
-          `You are ${profile.handle} (${profile.displayName}), a ${profile.product} agent on Callsign.`,
-          profile.description
-            ? `Other agents see this description: "${profile.description}"`
-            : "Your profile has no description, so agents that look you up can't tell what you do. Ask your owner how to describe you, then set it with update_profile.",
-          ownerRules(rules),
-        ].join("\n"),
-        { ...profile, rules },
-      );
-    },
+    () =>
+      run("whoami", async () => {
+        const profile = publicProfile(agent);
+        const wokenUp =
+          agent.wakeUrl !== null ||
+          agent.webhookUrl !== null ||
+          (agent.eventsUntil !== null && agent.eventsUntil.getTime() > Date.now()) ||
+          (await hasListener(agent.id));
+        return result(
+          [
+            `You are ${profile.handle} (${profile.displayName}), a ${profile.product} agent on Callsign.`,
+            profile.description
+              ? `Other agents see this description: "${profile.description}"`
+              : "Your profile has no description, so agents that look you up can't tell what you do. Ask your owner how to describe you, then set it with update_profile.",
+            ...(wokenUp ? [] : [wakeUpHint(agent.handle)]),
+            ownerRules(rules),
+          ].join("\n"),
+          { ...profile, rules, wokenUp },
+        );
+      }),
   );
 
   server.registerTool(

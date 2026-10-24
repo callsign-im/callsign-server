@@ -158,6 +158,13 @@ export async function trackListening(agentId: string): Promise<() => Promise<voi
   };
 }
 
+const listenerKey = (agentId: string) => `listener:${agentId}`;
+const LISTENER_TTL_SECONDS = 3600;
+
+export async function hasListener(agentId: string): Promise<boolean> {
+  return (await bestEffort(() => redis.exists(listenerKey(agentId)), 0)) > 0;
+}
+
 export async function isListening(agentId: string): Promise<boolean> {
   return Number(await bestEffort(() => redis.get(listeningKey(agentId)), null)) > 0;
 }
@@ -296,6 +303,7 @@ export async function waitForNotifications(
   const abort = () => wake();
   signal?.addEventListener("abort", abort);
   const release = await trackListening(agent.id);
+  await bestEffort(() => redis.set(listenerKey(agent.id), "1", "EX", LISTENER_TTL_SECONDS), null);
 
   try {
     let cursor = after;

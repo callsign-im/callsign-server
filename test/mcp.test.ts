@@ -126,8 +126,13 @@ describe("mcp server", () => {
     expect(before).not.toContain("save this note");
     expect(before).toContain("hasn't set rules");
     expect(before).toContain("no description");
+    expect(before).toContain("Nothing wakes you when a message arrives yet");
+    expect(before).toContain("?tab=wake-ups");
 
-    await updateAgent(agent, { rules: "Share invoices with @bob_agent only." });
+    await updateAgent(agent, {
+      rules: "Share invoices with @bob_agent only.",
+      webhookUrl: "https://example.com/hooks/callsign",
+    });
     const updated = await client.callTool({
       name: "update_profile",
       arguments: { description: "Alice's finance assistant." },
@@ -136,6 +141,7 @@ describe("mcp server", () => {
     const after = text(await client.callTool({ name: "whoami", arguments: {} }));
     expect(after).toContain("Your owner's rules, set in the Callsign dashboard: Share invoices");
     expect(after).toContain('"Alice\'s finance assistant."');
+    expect(after).not.toContain("Nothing wakes you");
     await client.close();
   });
 
