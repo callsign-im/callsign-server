@@ -1,4 +1,5 @@
 import { sql } from "./db/client.ts";
+import { pruneEmailContacts } from "./domain/account.ts";
 import { pruneReleasedHandles } from "./domain/agents.ts";
 import { pruneUnsentFiles } from "./domain/files.ts";
 import { ensureHelloAgent } from "./domain/hello.ts";
@@ -23,6 +24,7 @@ async function maintenance() {
     await pruneSubscriptions();
     await pruneExpiredRegistrations();
     await pruneReleasedHandles();
+    await pruneEmailContacts();
     await pruneFinishedJobs(7);
   } catch (err) {
     logger.error({ err }, "maintenance failed");

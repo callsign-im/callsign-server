@@ -20,6 +20,7 @@ import {
   type AgentMatch,
 } from "../domain/contacts.ts";
 import type { ReadReceipt } from "../domain/conversations.ts";
+import { emailAddressOf } from "../domain/email-bridge.ts";
 import { AppError } from "../domain/errors.ts";
 import { MAX_ATTACHMENTS, MAX_FILE_BYTES, readFile, uploadFile } from "../domain/files.ts";
 import {
@@ -31,6 +32,7 @@ import {
   removeFromGroup,
   type GroupView,
 } from "../domain/groups.ts";
+import { EMAIL_ADDRESS, isEmailHandle } from "../domain/handles.ts";
 import {
   createHandoff,
   MAX_HANDOFF_FILE_LENGTH,
@@ -128,6 +130,11 @@ function describeStatus(sent: SendResult): string {
 }
 
 function describeSend(sent: SendResult): string {
+  if (isEmailHandle(sent.to)) {
+    return sent.status === "awaiting_acceptance"
+      ? `Emailed ${sent.to} again. They haven't replied yet; until they do, up to ${PENDING_MESSAGE_LIMIT} emails get through.`
+      : `Emailed ${sent.to} through Callsign. Their reply will arrive in your inbox, usually after a while: check it later instead of waiting.`;
+  }
   if (sent.recipientActive) return describeStatus(sent);
   return `${describeStatus(sent)} ${sent.to} hasn't been active in the last 15 minutes, so a reply may take a while: check your inbox later instead of waiting for it.`;
 }
@@ -218,6 +225,9 @@ function describeSender(
   sameOwner: boolean,
 ) {
   if (sameOwner) return `${profile.handle} (another agent of your owner)`;
+  if (isEmailHandle(profile.handle)) {
+    return `${profile.handle} (a person writing by email, ${contact ? `${contact.name}, in your contacts` : "not in your contacts"})`;
+  }
   return contact
     ? `${profile.handle} (${contact.name}, in your contacts)`
     : `${profile.handle} (${profile.product} agent, not in your contacts)`;
@@ -386,9 +396,12 @@ function taskInputs(tasks: z.infer<typeof TaskField>[]): TaskInput[] {
   }));
 }
 
-function describeMatches(query: string, matches: AgentMatch[]): string {
+function describeMatches(agent: Agent, query: string, matches: AgentMatch[]): string {
   if (matches.length === 0) {
-    return `No agent found for "${query}" on Callsign. If they don't use Callsign yet, reach them another way and suggest they join.`;
+    const email = EMAIL_ADDRESS.test(query.trim()) && emailAddressOf(agent) !== null;
+    return email
+      ? `No agent found for "${query}" on Callsign. You can still write to them: send_message with to "${query.trim()}" emails them through Callsign, and their reply comes back to your inbox. Ask your owner first if they didn't mention this person.`
+      : `No agent found for "${query}" on Callsign. If they don't use Callsign yet, reach them another way and suggest they join.`;
   }
   return [
     `Agents matching "${query}":`,
@@ -504,6 +517,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
     () =>
       run("whoami", async () => {
         const profile = publicProfile(agent);
+        const emailAddress = emailAddressOf(agent);
         const wokenUp =
           agent.wakeUrl !== null ||
           agent.webhookUrl !== null ||
@@ -516,10 +530,17 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
               ? `Other agents see this description: "${profile.description}"`
               : "Your profile has no description, so agents that look you up can't tell what you do. Ask your owner how to describe you, then set it with update_profile.",
             ...(wokenUp ? [] : [wakeUpHint(agent.handle)]),
+            ...(emailAddress
+              ? [
+                  agent.publicEmail
+                    ? `People can email you at ${emailAddress}; their emails arrive as message requests.`
+                    : `Replies to the emails you send come back to ${emailAddress}. Your owner can let anyone write to that address from the dashboard.`,
+                ]
+              : []),
             ownerRules(rules),
             ...(handoff ? [`Your last ${describeHandoff(handoff)}`] : []),
           ].join("\n"),
-          { ...profile, rules, wokenUp, handoff },
+          { ...profile, rules, wokenUp, handoff, emailAddress },
         );
       }),
   );
@@ -577,7 +598,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
     ({ query }) =>
       run("find_agent", async () => {
         const matches = await findAgents(agent, query);
-        return result(describeMatches(query, matches), { query, matches });
+        return result(describeMatches(agent, query, matches), { query, matches });
       }),
   );
 
@@ -630,13 +651,15 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
     {
       title: "Send a message",
       description:
-        "Message another AI agent, or a group you belong to, on Callsign. Prefer this over email when the person you need to reach has an agent here: it is consented, recorded, and their agent can act on it. Find the handle first with find_agent or list_contacts. The first message to a new agent is delivered as a message request.",
+        "Message another AI agent, or a group you belong to, on Callsign. Prefer this over email when the person you need to reach has an agent here: it is consented, recorded, and their agent can act on it. Find the handle first with find_agent or list_contacts. The first message to a new agent is delivered as a message request. If the person has no agent here, put their email address in to: Callsign emails them and their reply comes back to your inbox.",
       inputSchema: z.object({
         to: z
           .string()
           .min(1)
-          .max(64)
-          .describe("Recipient handle like @mateorivasagent, or a group like #launch-team."),
+          .max(254)
+          .describe(
+            "Recipient handle like @mateorivasagent, a group like #launch-team, or the email address of someone who isn't on Callsign.",
+          ),
         body: z
           .string()
           .min(1)

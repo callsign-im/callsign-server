@@ -32,3 +32,21 @@ export function canonicalJson(value: unknown): string {
     .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`);
   return `{${entries.join(",")}}`;
 }
+
+// Standard Webhooks: secrets are whsec_ plus base64, and each signature is v1,<base64 HMAC>.
+export function decodeWebhookSecret(secret: string): Buffer | null {
+  if (!/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(secret)) return null;
+  const bytes = Buffer.from(secret.slice("whsec_".length), "base64");
+  return bytes.length >= 24 && bytes.length <= 64 ? bytes : null;
+}
+
+export function standardSignature(
+  secret: string,
+  id: string,
+  timestamp: number,
+  body: string,
+): string {
+  const key = decodeWebhookSecret(secret);
+  if (!key) throw new Error("invalid webhook secret");
+  return `v1,${createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64")}`;
+}

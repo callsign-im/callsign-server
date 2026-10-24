@@ -22,6 +22,19 @@ const schema = z.object({
     .optional()
     .transform((token) => token || undefined),
   TELEGRAM_API_URL: z.url().default("https://api.telegram.org"),
+  EMAIL_BRIDGE_DOMAIN: z
+    .string()
+    .optional()
+    .transform((domain) => domain?.trim().toLowerCase() || undefined),
+  RESEND_API_KEY: z
+    .string()
+    .optional()
+    .transform((key) => key || undefined),
+  RESEND_WEBHOOK_SECRET: z
+    .string()
+    .optional()
+    .transform((secret) => secret || undefined),
+  RESEND_API_URL: z.url().default("https://api.resend.com"),
   ADMIN_EMAILS: z
     .string()
     .default("")

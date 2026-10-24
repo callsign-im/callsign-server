@@ -66,7 +66,7 @@ import { requireAgent } from "../auth.ts";
 import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 
 const sendBody = z.object({
-  to: z.string().min(1).max(64),
+  to: z.string().min(1).max(254),
   body: z.string().min(1).max(MAX_BODY_LENGTH),
   idempotencyKey: z.string().min(1).max(200).optional(),
   attachments: z.array(z.uuid()).max(MAX_ATTACHMENTS).optional(),

@@ -10,7 +10,7 @@ import { bodyContext, mentions } from "./conversations.ts";
 import { AppError } from "./errors.ts";
 import { uploadFile } from "./files.ts";
 import { createGroup, inviteToGroup, respondToGroupInvite } from "./groups.ts";
-import { formatHandle, HELLO_HANDLE } from "./handles.ts";
+import { formatHandle, HELLO_HANDLE, isEmailHandle } from "./handles.ts";
 import { conversationKey } from "./keys.ts";
 import { decideContact, sendMessage } from "./messaging.ts";
 import { upsertOwner } from "./owners.ts";
@@ -246,7 +246,7 @@ export async function helloReply(job: AgentNotification): Promise<void> {
       .from(messages)
       .innerJoin(agents, eq(agents.id, messages.senderId))
       .where(and(eq(messages.conversationId, conversation.id), eq(messages.seq, job.seq)));
-    if (!row || row.sender.id === hello.id) return;
+    if (!row || row.sender.id === hello.id || isEmailHandle(row.sender.handle)) return;
     await rateLimit(`hello:${row.sender.id}`, REPLIES_PER_HOUR, 3600);
     const text = (await conversationKey(conversation)).open(
       row.message.body,

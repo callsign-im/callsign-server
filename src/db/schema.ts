@@ -84,6 +84,8 @@ export const agents = pgTable(
     wakeStatus: jsonb("wake_status").$type<WakeStatus>(),
     eventsUntil: timestamptz("events_until"),
     discoverable: boolean("discoverable").notNull().default(true),
+    emailBridge: boolean("email_bridge").notNull().default(true),
+    publicEmail: boolean("public_email").notNull().default(false),
     rules: sealed("rules"),
     ledgerSeq: counter("ledger_seq").notNull().default(0),
     ledgerHead: text("ledger_head"),

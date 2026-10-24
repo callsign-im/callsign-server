@@ -2,6 +2,7 @@ import { and, count, eq, inArray, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "../db/client.ts";
 import { agents, contacts, owners, type Agent } from "../db/schema.ts";
+import { isEmailHandle } from "./handles.ts";
 
 const PERSONAL_EMAIL_DOMAINS = new Set([
   "aol.com",
@@ -109,7 +110,7 @@ export async function ownerSignals(
   const signals = new Map<string, OwnerSignals>();
   for (const agent of others) {
     const owner = byId.get(agent.ownerId);
-    if (!owner) continue;
+    if (!owner || isEmailHandle(agent.handle)) continue;
     const org = organizationDomain(owner.email);
     signals.set(agent.id, {
       verifiedDomain: owner.showDomain ? org : null,

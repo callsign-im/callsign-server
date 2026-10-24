@@ -8,7 +8,7 @@ import { agents, eventSubscriptions, jobs, type Agent } from "../src/db/schema.t
 import { listAgentTokens, revokeAgentToken, updateAgent } from "../src/domain/agents.ts";
 import { createGroup, respondToGroupInvite } from "../src/domain/groups.ts";
 import { checkInbox, sendMessage } from "../src/domain/messaging.ts";
-import { standardSignature } from "../src/domain/subscriptions.ts";
+import { standardSignature } from "../src/lib/crypto.ts";
 import { wakeFields, wakeRequest, type WakeSettings } from "../src/domain/wake.ts";
 import { processDueJobs } from "../src/jobs/runner.ts";
 import { createAgentWithToken, startServer } from "./helpers.ts";

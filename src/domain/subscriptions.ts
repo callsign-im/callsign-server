@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { and, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "../config.ts";
@@ -11,7 +10,14 @@ import {
   type EventSubscription,
 } from "../db/schema.ts";
 import { enqueue, type AgentNotification, type JobPayloads } from "../jobs/queue.ts";
-import { canonicalJson, randomToken, safeEqual, sha256 } from "../lib/crypto.ts";
+import {
+  canonicalJson,
+  decodeWebhookSecret,
+  randomToken,
+  safeEqual,
+  sha256,
+  standardSignature,
+} from "../lib/crypto.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { isPublicHost, postJson } from "../lib/safe-fetch.ts";
 import { AppError } from "./errors.ts";
@@ -150,23 +156,6 @@ function matches(subscription: EventSubscription, occurrence: Occurrence): boole
   return true;
 }
 
-function decodeSecret(secret: string): Buffer | null {
-  if (!/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(secret)) return null;
-  const bytes = Buffer.from(secret.slice("whsec_".length), "base64");
-  return bytes.length >= 24 && bytes.length <= 64 ? bytes : null;
-}
-
-export function standardSignature(
-  secret: string,
-  id: string,
-  timestamp: number,
-  body: string,
-): string {
-  const key = decodeSecret(secret);
-  if (!key) throw new Error("invalid webhook secret");
-  return `v1,${createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64")}`;
-}
-
 function signedHeaders(subscriptionId: string, webhookId: string, body: string, secrets: string[]) {
   const timestamp = Math.floor(Date.now() / 1000);
   return {
@@ -288,7 +277,7 @@ export async function subscribe(agent: Agent, tokenId: string, params: Subscribe
     throw new EventsError("invalid", `Invalid arguments: ${z.prettifyError(parsed.error)}`);
   }
   const secret = params.delivery.secret ?? "";
-  if (!decodeSecret(secret)) {
+  if (!decodeWebhookSecret(secret)) {
     throw new EventsError("invalid", "delivery.secret must be whsec_ followed by 24-64 bytes.");
   }
   const url = callbackUrl(params.delivery.url);

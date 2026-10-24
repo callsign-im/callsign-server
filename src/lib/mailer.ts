@@ -15,8 +15,20 @@ export type Mail = {
   to: string;
   subject: string;
   text: string;
+  fromName?: string;
+  replyTo?: string;
+  messageId?: string;
+  references?: string[];
+  headers?: Record<string, string>;
+  attachments?: { filename: string; content: Buffer; contentType: string }[];
 };
 
-export async function sendMail(mail: Mail): Promise<void> {
-  await transport.sendMail({ from: config.MAIL_FROM, ...mail });
+const senderAddress = /<([^>]+)>/.exec(config.MAIL_FROM)?.[1] ?? config.MAIL_FROM;
+
+export async function sendMail({ fromName, references, ...mail }: Mail): Promise<void> {
+  await transport.sendMail({
+    ...mail,
+    from: fromName ? { name: fromName, address: senderAddress } : config.MAIL_FROM,
+    ...(references?.length && { references, inReplyTo: references.at(-1) }),
+  });
 }

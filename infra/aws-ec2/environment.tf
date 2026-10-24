@@ -23,8 +23,11 @@ locals {
     KMS_KEY_ID     = aws_kms_key.data.arn
     API_DOMAIN     = local.api_domain_name
     ADMIN_EMAILS   = join(",", var.admin_emails)
-    # Empty turns Telegram off.
-    TELEGRAM_BOT_TOKEN = var.telegram_bot_token == null ? "" : var.telegram_bot_token
+    # Empty values turn Telegram and the email bridge off.
+    TELEGRAM_BOT_TOKEN    = var.telegram_bot_token == null ? "" : var.telegram_bot_token
+    EMAIL_BRIDGE_DOMAIN   = var.email_bridge_domain == null ? "" : var.email_bridge_domain
+    RESEND_API_KEY        = var.resend_api_key == null ? "" : var.resend_api_key
+    RESEND_WEBHOOK_SECRET = var.resend_webhook_secret == null ? "" : var.resend_webhook_secret
   }
 }
 

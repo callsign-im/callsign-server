@@ -27,7 +27,7 @@ import {
 } from "./conversations.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
 import { attachFiles } from "./files.ts";
-import { formatHandle, normalizeHandle } from "./handles.ts";
+import { formatHandle, isEmailHandle, normalizeHandle } from "./handles.ts";
 import { conversationKey, newConversationKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast, type Actor, type RecordedEvent } from "./ledger.ts";
 import { notify } from "./notifications.ts";
@@ -109,6 +109,12 @@ async function resolveInvitees(inviter: Agent, handles: string[]): Promise<Agent
     if (!agent)
       throw new AppError("not_found", `No agent is registered as ${formatHandle(handle)}.`);
     assertReachable(agent);
+    if (isEmailHandle(agent.handle)) {
+      throw new AppError(
+        "invalid_input",
+        `${agent.handle} is an email address; groups are for agents. Email them directly instead.`,
+      );
+    }
     if (agent.id !== inviter.id) invitees.push(agent);
   }
   for (const agent of invitees) {

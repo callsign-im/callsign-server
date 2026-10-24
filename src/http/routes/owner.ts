@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { config } from "../../config.ts";
+import type { Agent } from "../../db/schema.ts";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { deleteAccount, deleteAgent, exportAccount } from "../../domain/account.ts";
@@ -27,6 +28,7 @@ import {
 import { deleteContact, listContacts, saveContact, updateContact } from "../../domain/contacts.ts";
 import { readFile } from "../../domain/files.ts";
 import { listFollowUps } from "../../domain/follow-ups.ts";
+import { emailAddressOf } from "../../domain/email-bridge.ts";
 import { leaveGroup } from "../../domain/groups.ts";
 import { latestHandoff, planHandoffs } from "../../domain/handoffs.ts";
 import { organizationDomain } from "../../domain/identity.ts";
@@ -67,6 +69,8 @@ const updateAgentBody = z.object({
     .optional(),
   notifyEmail: z.email().max(254).nullable().optional(),
   discoverable: z.boolean().optional(),
+  emailBridge: z.boolean().optional(),
+  publicEmail: z.boolean().optional(),
   rules: z.string().max(2000).nullable().optional(),
   wake: z
     .object({
@@ -77,6 +81,10 @@ const updateAgentBody = z.object({
     .nullable()
     .optional(),
 });
+
+async function detailView(agent: Agent) {
+  return { ...(await ownerView(agent)), emailAddress: emailAddressOf(agent) };
+}
 
 const ownerContactBody = z.object({
   handle: z.string().min(1).max(64),
@@ -184,7 +192,7 @@ export const ownerRoutes = new Hono<AppEnv>()
   })
   .get("/v1/agents/:handle", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
-    return c.json({ agent: await ownerView(agent), mcpUrl: mcpUrl() });
+    return c.json({ agent: await detailView(agent), mcpUrl: mcpUrl() });
   })
   .patch("/v1/agents/:handle", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
@@ -193,7 +201,7 @@ export const ownerRoutes = new Hono<AppEnv>()
       ...settings,
       wake: wake === undefined ? undefined : await wakeFields(agent, wake),
     });
-    return c.json({ agent: await ownerView(updated) });
+    return c.json({ agent: await detailView(updated) });
   })
   .post("/v1/agents/:handle/wake/test", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));

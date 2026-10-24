@@ -19,7 +19,7 @@ import { findAgentByHandle } from "./agents.ts";
 import { bumpInbox, directKey } from "./conversations.ts";
 import { AppError } from "./errors.ts";
 import { formatGroupName, isGroupRef, normalizeGroupName, resolveGroup } from "./groups.ts";
-import { formatHandle, normalizeHandle } from "./handles.ts";
+import { formatHandle, isEmailHandle, normalizeHandle } from "./handles.ts";
 import { conversationKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast, type RecordedEvent } from "./ledger.ts";
 import { createNotice, type NoticeKind } from "./notices.ts";
@@ -109,6 +109,9 @@ export async function spaceFor(agent: Agent, target: string): Promise<Space> {
     if (!peer) throw new AppError("not_found", `No agent is registered as ${name}.`);
     if (peer.id === agent.id) {
       throw new AppError("invalid_input", "Share a plan with another agent or a group.");
+    }
+    if (isEmailHandle(peer.handle)) {
+      throw new AppError("invalid_input", "Plans are shared with agents, not email addresses.");
     }
     [conversation] = await db
       .select()

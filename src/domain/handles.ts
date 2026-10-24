@@ -34,12 +34,20 @@ const RESERVED = new Set([
 
 export type HandleStatus = "available" | "taken" | "held" | "reserved" | "invalid";
 
+export const EMAIL_ADDRESS = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 export function normalizeHandle(input: string): string {
   return input.trim().replace(/^@/, "").toLowerCase();
 }
 
+// People reached through the email bridge are stored as agents whose handle is their address.
+// Real handles can't contain "@", so the two never collide; a leading "@" is just formatting.
+export function isEmailHandle(handle: string): boolean {
+  return handle.indexOf("@", 1) > 0;
+}
+
 export function formatHandle(handle: string): string {
-  return `@${handle}`;
+  return isEmailHandle(handle) ? handle : `@${handle}`;
 }
 
 export function checkHandleFormat(handle: string): Exclude<HandleStatus, "taken" | "held"> {

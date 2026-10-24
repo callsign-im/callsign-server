@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { sql } from "../../db/client.ts";
+import { db, sql } from "../../db/client.ts";
 import { handleAvailability, publicProfile } from "../../domain/agents.ts";
+import { emailBridgeEnabled, verifyResendWebhook } from "../../domain/email-bridge.ts";
 import { AppError } from "../../domain/errors.ts";
 import { formatHandle } from "../../domain/handles.ts";
 import { acceptInvitations, invitationPreview } from "../../domain/invitations.ts";
@@ -9,6 +10,7 @@ import { requestLogin, revokeSession, verifyLogin } from "../../domain/owners.ts
 import { answerByLink, answerLinkView, MAX_OPTIONS } from "../../domain/questions.ts";
 import { networkStats } from "../../domain/stats.ts";
 import { handleTelegramUpdate, type TelegramUpdate } from "../../domain/telegram.ts";
+import { enqueue } from "../../jobs/queue.ts";
 import { safeEqual } from "../../lib/crypto.ts";
 import { logger } from "../../lib/logger.ts";
 import { redis } from "../../lib/redis.ts";
@@ -56,6 +58,23 @@ export const publicRoutes = new Hono<AppEnv>()
     await handleTelegramUpdate(update).catch((err: unknown) =>
       logger.error({ err }, "telegram update failed"),
     );
+    return c.json({ ok: true });
+  })
+  .post("/v1/email/inbound", async (c) => {
+    const body = await c.req.text();
+    const signed = verifyResendWebhook(
+      {
+        id: c.req.header("svix-id"),
+        timestamp: c.req.header("svix-timestamp"),
+        signature: c.req.header("svix-signature"),
+      },
+      body,
+    );
+    if (!emailBridgeEnabled() || !signed) throw new AppError("not_found", "Not found.");
+    const event = JSON.parse(body) as { type?: string; data?: { email_id?: string } };
+    if (event.type === "email.received" && event.data?.email_id) {
+      await enqueue(db, "email.inbound", { emailId: event.data.email_id });
+    }
     return c.json({ ok: true });
   })
   .get("/v1/answers/:token", async (c) =>

@@ -1,6 +1,8 @@
 import { config, supportEmail } from "../config.ts";
 import { webhookSecret } from "../domain/agents.ts";
 import { formatHandle } from "../domain/handles.ts";
+import { deliverBridgeEmail } from "../domain/email-bridge.ts";
+import { receiveBridgeEmail } from "../domain/email-inbound.ts";
 import { fireFollowUp } from "../domain/follow-ups.ts";
 import { helloReply } from "../domain/hello.ts";
 import { describeNotification } from "../domain/notifications.ts";
@@ -174,6 +176,8 @@ export const handlers: Handlers = {
   "agent.wake": deliverWake,
   "telegram.question": sendQuestionToTelegram,
   "hello.reply": helloReply,
+  "email.bridge": deliverBridgeEmail,
+  "email.inbound": receiveBridgeEmail,
   "task.due": remindOverdueTask,
   "follow_up.due": fireFollowUp,
   "agent.events": fanOutEvent,

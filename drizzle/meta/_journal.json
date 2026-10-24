@@ -106,6 +106,13 @@
       "when": 1792869421038,
       "tag": "0014_connection_cursors_and_handoffs",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792875820406,
+      "tag": "0015_email_bridge",
+      "breakpoints": true
     }
   ]
 }

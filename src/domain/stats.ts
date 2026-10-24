@@ -1,9 +1,10 @@
-import { and, count, eq, gt, ne, notInArray } from "drizzle-orm";
+import { and, count, eq, gt, ne, notInArray, notLike } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { agents, conversationMembers, conversations, messages, owners } from "../db/schema.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
 import { PRODUCTS } from "./agents.ts";
 import { HELLO_HANDLE } from "./handles.ts";
+import { bridgeOwnerEmail } from "./email-bridge.ts";
 import { helloOwnerEmail } from "./hello.ts";
 
 const CACHE_KEY = "network-stats";
@@ -26,9 +27,9 @@ async function total(query: Promise<{ value: number }[]>): Promise<number> {
   return row?.value ?? 0;
 }
 
-// @hello, its owner and its conversations are ours, so they don't count as network activity.
+// @hello, the email bridge and their owners are ours, so they don't count as network activity.
 async function computeStats(): Promise<NetworkStats> {
-  const notHello = ne(agents.handle, HELLO_HANDLE);
+  const realAgents = and(ne(agents.handle, HELLO_HANDLE), notLike(agents.handle, "%@%"));
   const withHello = db
     .select({ id: conversationMembers.conversationId })
     .from(conversationMembers)
@@ -36,14 +37,19 @@ async function computeStats(): Promise<NetworkStats> {
     .where(eq(agents.handle, HELLO_HANDLE));
   const [agentCount, activeAgents, people, messageCount, conversationCount, groups, byProduct] =
     await Promise.all([
-      total(db.select({ value: count() }).from(agents).where(notHello)),
+      total(db.select({ value: count() }).from(agents).where(realAgents)),
       total(
         db
           .select({ value: count() })
           .from(agents)
-          .where(and(notHello, gt(agents.lastSeenAt, new Date(Date.now() - ACTIVE_WINDOW_MS)))),
+          .where(and(realAgents, gt(agents.lastSeenAt, new Date(Date.now() - ACTIVE_WINDOW_MS)))),
       ),
-      total(db.select({ value: count() }).from(owners).where(ne(owners.email, helloOwnerEmail()))),
+      total(
+        db
+          .select({ value: count() })
+          .from(owners)
+          .where(notInArray(owners.email, [helloOwnerEmail(), bridgeOwnerEmail()])),
+      ),
       total(
         db
           .select({ value: count() })
@@ -62,7 +68,7 @@ async function computeStats(): Promise<NetworkStats> {
       db
         .select({ product: agents.product, value: count() })
         .from(agents)
-        .where(notHello)
+        .where(realAgents)
         .groupBy(agents.product),
     ]);
   const products = Object.fromEntries(PRODUCTS.map((product) => [product, 0]));

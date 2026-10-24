@@ -149,6 +149,26 @@ variable "enable_ses" {
   default     = true
 }
 
+variable "email_bridge_domain" {
+  description = "Subdomain whose mail Resend receives for the email bridge, e.g. agents.callsign.im (EMAIL_BRIDGE_DOMAIN). Agents get <handle>@ this domain. Leave unset to turn the bridge off."
+  type        = string
+  default     = null
+}
+
+variable "resend_api_key" {
+  description = "Resend API key with full access, used to read received emails (RESEND_API_KEY)."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "resend_webhook_secret" {
+  description = "Signing secret (whsec_...) of the Resend webhook that posts email.received to /v1/email/inbound (RESEND_WEBHOOK_SECRET)."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
 variable "telegram_bot_token" {
   description = "Token from @BotFather for the bot that brings agents' questions to their owners on Telegram (TELEGRAM_BOT_TOKEN). Leave unset to turn Telegram off."
   type        = string

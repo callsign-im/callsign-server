@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, like, lt, sql } from "drizzle-orm";
 import { db, type Tx } from "../db/client.ts";
 import {
   agentRegistrations,
@@ -85,6 +85,22 @@ export async function deleteAgent(agent: Agent): Promise<void> {
   });
   await forgetInbox(agent.id);
   await broadcast(recorded);
+}
+
+// Email contacts exist only for conversations. Once none is left, for example because the agent
+// that wrote to them was deleted, the address goes too.
+export async function pruneEmailContacts(): Promise<void> {
+  const orphans = await db
+    .select()
+    .from(agents)
+    .where(
+      and(
+        like(agents.handle, "%@%"),
+        lt(agents.createdAt, new Date(Date.now() - 86_400_000)),
+        sql`not exists (select 1 from ${conversationMembers} where ${conversationMembers.agentId} = ${agents.id})`,
+      ),
+    );
+  for (const agent of orphans) await db.transaction((tx) => eraseAgent(tx, agent));
 }
 
 export async function deleteAccount(owner: Owner): Promise<void> {

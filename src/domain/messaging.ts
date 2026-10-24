@@ -48,6 +48,7 @@ import {
   type PeerProfile,
   type ReadReceipt,
 } from "./conversations.ts";
+import { emailRecipient } from "./email-bridge.ts";
 import { AppError, isUniqueViolation } from "./errors.ts";
 import { attachFiles } from "./files.ts";
 import {
@@ -59,7 +60,7 @@ import {
   sendGroupMessage,
   type GroupView,
 } from "./groups.ts";
-import { formatHandle, normalizeHandle } from "./handles.ts";
+import { formatHandle, isEmailHandle, normalizeHandle } from "./handles.ts";
 import { signalsFor } from "./identity.ts";
 import { conversationKey, newConversationKey } from "./keys.ts";
 import {
@@ -269,7 +270,9 @@ export async function sendMessage(
 ): Promise<SendResult> {
   if (isGroupRef(input.to)) return sendGroupMessage(sender, input.to, input);
   const body = cleanBody(input.body);
-  const recipient = await resolvePeer(sender, input.to);
+  const recipient = isEmailHandle(normalizeHandle(input.to))
+    ? await emailRecipient(sender, input.to)
+    : await resolvePeer(sender, input.to);
   assertReachable(recipient);
 
   if (input.idempotencyKey) {

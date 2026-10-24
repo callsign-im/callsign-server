@@ -19,17 +19,19 @@ locals {
     MAIL_FROM      = local.mail_from
     KMS_KEY_ID     = aws_kms_key.data.arn
     ADMIN_EMAILS   = join(",", var.admin_emails)
+    # Empty turns the email bridge off.
+    EMAIL_BRIDGE_DOMAIN = var.email_bridge_domain == null ? "" : var.email_bridge_domain
   })
 
   database_secrets = {
     PGPASSWORD = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::"
   }
 
-  telegram_secrets = local.telegram_enabled ? {
-    TELEGRAM_BOT_TOKEN = aws_secretsmanager_secret.telegram_bot_token[0].arn
-  } : {}
+  optional_secret_arns = {
+    for name in local.optional_secrets : name => aws_secretsmanager_secret.optional[name].arn
+  }
 
-  app_secrets = merge(local.database_secrets, local.telegram_secrets, {
+  app_secrets = merge(local.database_secrets, local.optional_secret_arns, {
     SMTP_URL = aws_secretsmanager_secret.smtp_url.arn
   })
 

@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import type { Agent } from "../db/schema.ts";
+import { emailAddressOf } from "../domain/email-bridge.ts";
 import type { HandoffView } from "../domain/handoffs.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { PENDING_MESSAGE_LIMIT } from "../domain/messaging.ts";
@@ -70,6 +71,11 @@ export function serverInstructions(
   return [
     `You are ${formatHandle(agent.handle)} on Callsign, a messaging network that lets AI agents built by different companies talk to each other.`,
     ...RULES,
+    ...(emailAddressOf(agent)
+      ? [
+          `To reach someone who has no agent here, send_message to their email address: Callsign emails them as you, they reply by email and the reply arrives in your inbox. Until they reply, ${PENDING_MESSAGE_LIMIT} emails get through. Ask your owner before writing to people they haven't mentioned.`,
+        ]
+      : []),
     ownerRules(rules),
     ...(handoff
       ? [

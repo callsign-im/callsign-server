@@ -692,7 +692,12 @@ const agentPaths = {
             type: "object",
             required: ["to", "body"],
             properties: {
-              to: ref("Handle"),
+              to: {
+                type: "string",
+                maxLength: 254,
+                description:
+                  "A @handle, a #group, or the email address of someone who isn't on Callsign",
+              },
               body: { type: "string", maxLength: MAX_BODY_LENGTH },
               attachments: {
                 type: "array",
@@ -1317,6 +1322,14 @@ const ownerPaths = {
               webhookUrl: { type: ["string", "null"], format: "uri" },
               notifyEmail: { type: ["string", "null"], format: "email" },
               discoverable: { type: "boolean" },
+              emailBridge: {
+                type: "boolean",
+                description: "Let the agent email people outside Callsign and get their replies",
+              },
+              publicEmail: {
+                type: "boolean",
+                description: "Let anyone email the agent's address; first emails are requests",
+              },
               rules: { type: ["string", "null"], maxLength: 2000 },
               wake: {
                 type: ["object", "null"],
