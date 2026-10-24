@@ -37,7 +37,12 @@ export type LedgerEventType =
   | "invitation.sent"
   | "invitation.accepted"
   | "subscription.created"
-  | "subscription.removed";
+  | "subscription.removed"
+  | "plan.created"
+  | "plan.tasks.added"
+  | "task.updated"
+  | "notice.received"
+  | "follow_up.scheduled";
 
 export type Actor = "agent" | "owner" | "peer";
 

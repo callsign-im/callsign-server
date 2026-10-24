@@ -5,6 +5,7 @@ import {
   conversationMembers,
   conversations,
   messages,
+  notices,
   ownerQuestions,
   type Agent,
 } from "../db/schema.ts";
@@ -21,6 +22,7 @@ export const INBOX_EVENTS: LedgerEventType[] = [
   ...MESSAGE_EVENTS,
   "group.invited",
   "owner.answered",
+  "notice.received",
 ];
 const INBOX_EVENT_NAMES = new Set<string>(INBOX_EVENTS);
 const NOTIFICATION_LIMIT = 100;
@@ -39,9 +41,17 @@ export type NotificationEvent =
       sentAt: string;
     }
   | { type: "group.invited"; agent: string; from: string; group: string; conversationId: string }
-  | { type: "owner.answered"; agent: string; questionId: string };
+  | { type: "owner.answered"; agent: string; questionId: string }
+  | {
+      type: "notice.received";
+      agent: string;
+      notice: string;
+      from: string | null;
+      conversationId: string | null;
+      planId: string | null;
+    };
 
-export type Notice = {
+export type Alert = {
   recipient: Agent;
   event: NotificationEvent;
   subject: string;
@@ -63,7 +73,7 @@ async function agentById(id: string): Promise<Agent | undefined> {
   return agent;
 }
 
-export async function describeNotification(payload: AgentNotification): Promise<Notice | null> {
+export async function describeNotification(payload: AgentNotification): Promise<Alert | null> {
   const recipient = await agentById(payload.agentId);
   if (!recipient) return null;
   const to = formatHandle(recipient.handle);
@@ -75,6 +85,29 @@ export async function describeNotification(payload: AgentNotification): Promise<
       subject: `Your owner answered ${to} on Callsign`,
       summary: `The owner of ${to} answered one of its questions.`,
       throttleKey: `notify-email:${recipient.id}:answers`,
+    };
+  }
+
+  if (payload.kind === "notice") {
+    const [row] = await db.select().from(notices).where(eq(notices.id, payload.noticeId));
+    if (!row) return null;
+    const actor = row.actorId ? await agentById(row.actorId) : undefined;
+    return {
+      recipient,
+      event: {
+        type: "notice.received",
+        agent: to,
+        notice: row.kind,
+        from: actor ? formatHandle(actor.handle) : null,
+        conversationId: row.conversationId,
+        planId: row.planId,
+      },
+      subject: `Plan update for ${to} on Callsign`,
+      summary:
+        row.kind === "follow_up"
+          ? `A follow-up ${to} scheduled is due.`
+          : `There's an update in one of ${to}'s plans.`,
+      throttleKey: `notify-email:${recipient.id}:notices`,
     };
   }
 
@@ -131,8 +164,22 @@ export async function describeNotification(payload: AgentNotification): Promise<
 }
 
 // One line an agent can act on, without any message content.
+const NOTICE_TEXT: Record<string, (agent: string, from: string) => string> = {
+  "plan.shared": (agent, from) => `${from} shared a plan with ${agent}.`,
+  "task.assigned": (agent, from) => `${from} gave ${agent} a task in a plan.`,
+  "task.ready": (agent) => `A task assigned to ${agent} is ready to start.`,
+  "task.updated": (agent, from) => `${from} updated a task in a plan ${agent} is part of.`,
+  "task.overdue": (agent) => `A task in one of ${agent}'s plans is overdue.`,
+  follow_up: (agent) => `A follow-up ${agent} scheduled is due.`,
+};
+
 export function describeEvent(event: NotificationEvent): string {
   switch (event.type) {
+    case "notice.received":
+      return (NOTICE_TEXT[event.notice] ?? NOTICE_TEXT["task.updated"]!)(
+        event.agent,
+        event.from ?? "Another agent",
+      );
     case "owner.answered":
       return `Your owner answered one of ${event.agent}'s questions.`;
     case "group.invited":
@@ -206,12 +253,17 @@ export async function unreadCount(agentId: string): Promise<number> {
         isNull(ownerQuestions.deliveredAt),
       ),
     );
-  return (threads?.count ?? 0) + (answers?.count ?? 0);
+  const [pending] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(notices)
+    .where(and(eq(notices.agentId, agentId), isNull(notices.deliveredAt)));
+  return (threads?.count ?? 0) + (answers?.count ?? 0) + (pending?.count ?? 0);
 }
 
 export type InboxNotification = {
   seq: number;
   type: LedgerEventType;
+  notice: string | null;
   from: string | null;
   group: string | null;
   mentioned: boolean;
@@ -268,6 +320,7 @@ export async function listNotifications(
     notifications: window.map((event) => ({
       seq: event.seq,
       type: event.type as LedgerEventType,
+      notice: typeof event.data.kind === "string" ? event.data.kind : null,
       from:
         typeof event.data.from === "string"
           ? event.data.from

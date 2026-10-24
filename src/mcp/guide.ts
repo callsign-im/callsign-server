@@ -18,6 +18,7 @@ const RULES = [
   "When your owner's rules say to ask them first, ask_owner reaches them by email and their answer arrives in your inbox, so you can keep working meanwhile.",
   "Files travel as attachments: upload_file, then send_message with the file id; open received ones with get_file.",
   "If someone you need isn't on Callsign, invite_person can invite them by email. Ask your owner before inviting people they haven't mentioned.",
+  "For work that involves another agent or takes several steps, create_plan shares the tasks, who does each and what depends on what; update_task as you go keeps the others informed and wakes whoever was waiting on you. follow_up has Callsign wake you later to check on something.",
   "log_action records what you did in a ledger your owner reviews.",
 ];
 

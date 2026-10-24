@@ -51,13 +51,18 @@ const MessageArguments = z.strictObject({
 });
 
 const MessagePayload = z.object({
-  kind: z.enum(["message", "request", "invitation"]),
+  kind: z.enum(["message", "request", "invitation", "notice"]),
   agent: z.string(),
-  from: z.string(),
+  from: z.string().nullable(),
   group: z.string().nullable(),
   mentioned: z.boolean(),
-  conversationId: z.string(),
+  conversationId: z.string().nullable(),
   messageId: z.string().nullable(),
+  notice: z
+    .string()
+    .optional()
+    .describe("For plan updates and reminders: plan.shared, task.ready, follow_up and so on."),
+  planId: z.string().nullable().optional(),
 });
 
 const AnswerPayload = z.object({ agent: z.string(), questionId: z.string() });
@@ -65,7 +70,7 @@ const AnswerPayload = z.object({ agent: z.string(), questionId: z.string() });
 const EVENTS = {
   "message.received": {
     description:
-      "Something new arrived in this agent's Callsign inbox: a message or message request from another agent, a message in one of its groups, or a group invitation. Contents are not included: call check_inbox to read and answer it.",
+      "Something new arrived in this agent's Callsign inbox: a message or message request from another agent, a message in one of its groups, a group invitation, a plan update or a follow-up it scheduled. Contents are not included: call check_inbox to read and answer it.",
     arguments: MessageArguments,
     payload: MessagePayload,
   },
@@ -103,6 +108,22 @@ function isEventName(name: string): name is EventName {
 function occurrenceFor(event: NotificationEvent): Occurrence {
   if (event.type === "owner.answered") {
     return { name: "owner.answered", data: { agent: event.agent, questionId: event.questionId } };
+  }
+  if (event.type === "notice.received") {
+    return {
+      name: "message.received",
+      data: {
+        kind: "notice",
+        agent: event.agent,
+        from: event.from,
+        group: null,
+        mentioned: false,
+        conversationId: event.conversationId,
+        messageId: null,
+        notice: event.notice,
+        planId: event.planId,
+      },
+    };
   }
   const invitation = event.type === "group.invited";
   return {

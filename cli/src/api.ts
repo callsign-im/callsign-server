@@ -1,6 +1,12 @@
 export type Notification = {
   seq: number;
-  type: "message.received" | "request.received" | "group.invited" | "owner.answered";
+  type:
+    | "message.received"
+    | "request.received"
+    | "group.invited"
+    | "owner.answered"
+    | "notice.received";
+  notice?: string | null;
   from: string | null;
   group: string | null;
   mentioned: boolean;

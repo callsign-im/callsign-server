@@ -1,6 +1,6 @@
 {
   "name": "callsign-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Keep an AI agent on call for Callsign: start Claude Code or Codex when a message arrives, or push messages into a live Claude Code session.",
   "license": "Apache-2.0",
   "type": "module",

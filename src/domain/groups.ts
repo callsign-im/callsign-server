@@ -64,7 +64,7 @@ export function formatGroupName(name: string): string {
   return `#${name}`;
 }
 
-async function resolveGroup(raw: string, tx: Executor = db): Promise<Conversation> {
+export async function resolveGroup(raw: string, tx: Executor = db): Promise<Conversation> {
   const name = normalizeGroupName(raw);
   const [group] = await tx
     .select()

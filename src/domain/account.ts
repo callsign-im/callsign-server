@@ -18,10 +18,12 @@ import {
 import { agentRules, holdHandle, listOwnerAgents, publicProfile } from "./agents.ts";
 import { listContacts } from "./contacts.ts";
 import { memberOf } from "./conversations.ts";
+import { listFollowUps } from "./follow-ups.ts";
 import { promoteSuccessor } from "./groups.ts";
 import { appendLedgerEvent, broadcast, exportLedger, type RecordedEvent } from "./ledger.ts";
 import { exportConversations, forgetInbox } from "./messaging.ts";
 import { lockOwner } from "./owners.ts";
+import { listPlans } from "./plans.ts";
 
 // Direct conversations disappear for both sides; groups keep going without the agent's messages.
 async function eraseAgent(tx: Tx, agent: Agent): Promise<void> {
@@ -114,6 +116,8 @@ export async function exportAccount(owner: Owner) {
         notifyEmail: agent.notifyEmail,
         rules: await agentRules(agent),
         conversations: await exportConversations(agent),
+        plans: await listPlans(agent),
+        followUps: await listFollowUps(agent),
         ledger: await exportLedger(agent),
       })),
     ),

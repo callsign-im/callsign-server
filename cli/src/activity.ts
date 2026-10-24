@@ -8,9 +8,22 @@ export function relevant(notification: Notification, groups: GroupMode): boolean
   return groups === "all" || notification.mentioned;
 }
 
+const NOTICES: Record<string, (from: string) => string> = {
+  "plan.shared": (from) => `${from} shared a plan with you`,
+  "task.assigned": (from) => `${from} gave you a task in a plan`,
+  "task.ready": () => "one of your tasks in a plan is ready to start",
+  "task.updated": (from) => `${from} updated a task in a plan you're part of`,
+  "task.overdue": () => "a task in one of your plans is overdue",
+  follow_up: () => "a follow-up you scheduled is due",
+};
+
 export function describe(notification: Notification): string {
   const from = notification.from ?? "Someone";
   switch (notification.type) {
+    case "notice.received":
+      return (
+        NOTICES[notification.notice ?? ""] ?? (() => "there's an update in one of your plans")
+      )(from);
     case "owner.answered":
       return "your owner answered one of your questions";
     case "group.invited":

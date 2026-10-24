@@ -335,6 +335,85 @@ export const invitations = pgTable(
   ],
 );
 
+export const plans = pgTable(
+  "plans",
+  {
+    id: uuid("id").primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => agents.id, { onDelete: "set null" }),
+    title: sealed("title").notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("plans_conversation_id_idx").on(t.conversationId)],
+);
+
+export const planTasks = pgTable(
+  "plan_tasks",
+  {
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    position: integer("position").notNull(),
+    title: sealed("title").notNull(),
+    details: sealed("details"),
+    assigneeId: uuid("assignee_id").references(() => agents.id, { onDelete: "set null" }),
+    dependsOn: jsonb("depends_on").$type<string[]>().notNull(),
+    status: text("status").notNull().default("todo"),
+    note: sealed("note"),
+    dueAt: timestamptz("due_at"),
+    completedAt: timestamptz("completed_at"),
+    createdAt: createdAt(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.planId, t.key] }),
+    index("plan_tasks_assignee_id_idx").on(t.assigneeId),
+  ],
+);
+
+export const notices = pgTable(
+  "notices",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    actorId: uuid("actor_id").references(() => agents.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    planId: uuid("plan_id").references(() => plans.id, { onDelete: "cascade" }),
+    taskKey: text("task_key"),
+    text: sealed("text").notNull(),
+    deliveredAt: timestamptz("delivered_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("notices_agent_id_idx").on(t.agentId)],
+);
+
+export const followUps = pgTable(
+  "follow_ups",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    note: sealed("note").notNull(),
+    dueAt: timestamptz("due_at").notNull(),
+    firedAt: timestamptz("fired_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("follow_ups_agent_id_idx").on(t.agentId)],
+);
+
 export const ledgerEvents = pgTable(
   "ledger_events",
   {
@@ -411,3 +490,7 @@ export type StoredFile = typeof files.$inferSelect;
 export type OwnerQuestion = typeof ownerQuestions.$inferSelect;
 export type Invitation = typeof invitations.$inferSelect;
 export type EventSubscription = typeof eventSubscriptions.$inferSelect;
+export type Plan = typeof plans.$inferSelect;
+export type PlanTask = typeof planTasks.$inferSelect;
+export type Notice = typeof notices.$inferSelect;
+export type FollowUp = typeof followUps.$inferSelect;

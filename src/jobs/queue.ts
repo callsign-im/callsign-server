@@ -6,7 +6,8 @@ import { uuidv7 } from "../lib/ids.ts";
 export type AgentNotification =
   | { kind: "request" | "message"; agentId: string; conversationId: string; seq: number }
   | { kind: "invitation"; agentId: string; conversationId: string; fromId: string }
-  | { kind: "answer"; agentId: string; questionId: string };
+  | { kind: "answer"; agentId: string; questionId: string }
+  | { kind: "notice"; agentId: string; noticeId: string };
 
 export type JobPayloads = {
   "email.login": { email: string; url: string };
@@ -32,6 +33,8 @@ export type JobPayloads = {
   "agent.email": AgentNotification;
   "agent.wake": AgentNotification;
   "agent.events": AgentNotification;
+  "task.due": { planId: string; key: string; dueAt: string };
+  "follow_up.due": { followUpId: string };
   "event.delivery": {
     subscriptionId: string;
     eventId: string;

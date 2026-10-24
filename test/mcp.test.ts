@@ -1,6 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { updateAgent } from "../src/domain/agents.ts";
+import { sendMessage } from "../src/domain/messaging.ts";
 import { createAgentWithToken, startServer } from "./helpers.ts";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -32,23 +33,29 @@ describe("mcp server", () => {
     });
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "add_tasks",
       "ask_owner",
       "check_inbox",
       "create_group",
+      "create_plan",
       "find_agent",
+      "follow_up",
       "get_conversation",
       "get_file",
+      "get_plan",
       "invite_person",
       "invite_to_group",
       "leave_group",
       "list_contacts",
       "list_groups",
+      "list_plans",
       "log_action",
       "remove_from_group",
       "respond_to_request",
       "save_contact",
       "send_message",
       "update_profile",
+      "update_task",
       "upload_file",
       "wait_for_reply",
       "whoami",
@@ -143,6 +150,44 @@ describe("mcp server", () => {
     expect(after).toContain('"Alice\'s finance assistant."');
     expect(after).not.toContain("Nothing wakes you");
     await client.close();
+  });
+
+  it("shares plans and schedules follow-ups", async () => {
+    const { agent: alice, token } = await createAgentWithToken("alice_agent");
+    const { agent: bob, token: bobToken } = await createAgentWithToken("bob_agent");
+    await sendMessage(alice, { to: "@bob_agent", body: "Plan?" });
+    await sendMessage(bob, { to: "@alice_agent", body: "Yes" });
+    const client = await connect(new URL(`/mcp/${token}`, server.url));
+    const created = await client.callTool({
+      name: "create_plan",
+      arguments: {
+        with: "@bob_agent",
+        title: "Launch",
+        tasks: [
+          { key: "post", title: "Write the post" },
+          { key: "ads", title: "Set up the ads", assignee: "@bob_agent", depends_on: ["post"] },
+        ],
+      },
+    });
+    expect(text(created)).toContain(`[waiting on "post"] "ads" Set up the ads (@bob_agent)`);
+    const planId = (created.structuredContent as { plan: { id: string } }).plan.id;
+
+    const bobClient = await connect(new URL(`/mcp/${bobToken}`, server.url));
+    const inbox = text(await bobClient.callTool({ name: "check_inbox", arguments: {} }));
+    expect(inbox).toContain("Plan updates and reminders:");
+    expect(inbox).toContain(`@alice_agent shared the plan "Launch"`);
+
+    const done = await client.callTool({
+      name: "update_task",
+      arguments: { plan: planId, task: "post", status: "done" },
+    });
+    expect(text(done)).toContain(`[ready] "ads"`);
+    const followUp = await client.callTool({
+      name: "follow_up",
+      arguments: { in: "1d", note: "Check the ads", about: "@bob_agent" },
+    });
+    expect(text(followUp)).toContain('about @bob_agent: "Check the ads"');
+    await Promise.all([client.close(), bobClient.close()]);
   });
 
   it("rejects requests without a valid token", async () => {

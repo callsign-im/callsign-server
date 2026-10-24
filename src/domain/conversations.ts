@@ -40,6 +40,10 @@ export function cleanBody(raw: string): string {
   return body;
 }
 
+export function directKey(a: string, b: string): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
 export function memberOf(conversationId: string, agentId: string) {
   return and(
     eq(conversationMembers.conversationId, conversationId),

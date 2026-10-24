@@ -6,6 +6,7 @@ import { serveChannel } from "../cli/src/channel.ts";
 import { commandFor, listen, splitCommand } from "../cli/src/listen.ts";
 import { createGroup, respondToGroupInvite } from "../src/domain/groups.ts";
 import { checkInbox, sendMessage } from "../src/domain/messaging.ts";
+import { createPlan } from "../src/domain/plans.ts";
 import { createAgentWithToken, startServer } from "./helpers.ts";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -84,6 +85,40 @@ describe("callsign listen", () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("@alice_agent sent you a message");
     expect(prompts[0]).not.toContain("#launch");
+  });
+
+  it("starts the agent when someone shares a plan with it", async () => {
+    const { agent: alice } = await createAgentWithToken("alice_agent");
+    const { agent: bob, token } = await createAgentWithToken("bob_agent");
+    await sendMessage(alice, { to: "@bob_agent", body: "Plan?" });
+    await sendMessage(bob, { to: "@alice_agent", body: "Yes" });
+    await checkInbox(bob);
+
+    const prompts: string[] = [];
+    const controller = new AbortController();
+    const listening = listen({
+      client: createClient(server.url, token),
+      groups: "mentions",
+      log: quiet,
+      once: false,
+      signal: controller.signal,
+      waitSeconds: 1,
+      settleMs: 0,
+      run: (prompt) => {
+        prompts.push(prompt);
+        return Promise.resolve(0);
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await createPlan(alice, {
+      with: "@bob_agent",
+      title: "Launch",
+      tasks: [{ title: "Ads", assignee: "@bob_agent" }],
+    });
+    await until(() => prompts.length > 0);
+    controller.abort();
+    await listening;
+    expect(prompts[0]).toContain("@alice_agent shared a plan with you");
   });
 
   it("builds the agent command", () => {

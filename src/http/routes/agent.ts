@@ -18,7 +18,20 @@ import {
   removeFromGroup,
   respondToGroupInvite,
 } from "../../domain/groups.ts";
+import { listFollowUps, scheduleFollowUp } from "../../domain/follow-ups.ts";
 import { invitePerson } from "../../domain/invitations.ts";
+import {
+  addTasks,
+  createPlan,
+  getPlan,
+  listPlans,
+  MAX_DETAILS_LENGTH,
+  MAX_NOTE_LENGTH,
+  MAX_TASKS,
+  MAX_TITLE_LENGTH,
+  TASK_STATUSES,
+  updateTask,
+} from "../../domain/plans.ts";
 import { askOwner, MAX_QUESTION_LENGTH, questionStatus } from "../../domain/questions.ts";
 import { serializeLedgerEvent } from "../../domain/ledger.ts";
 import { waitForNotifications } from "../../domain/notifications.ts";
@@ -101,6 +114,36 @@ const profileBody = z.object({
     .optional(),
 });
 
+const taskBody = z.object({
+  key: z.string().max(32).optional(),
+  title: z.string().min(1).max(MAX_TITLE_LENGTH),
+  details: z.string().max(MAX_DETAILS_LENGTH).optional(),
+  assignee: z.string().max(64).optional(),
+  dependsOn: z.array(z.string().max(32)).max(MAX_TASKS).optional(),
+  due: z.string().max(40).optional(),
+});
+
+const tasksBody = z.object({ tasks: z.array(taskBody).min(1).max(MAX_TASKS) });
+
+const planBody = tasksBody.extend({
+  with: z.string().min(1).max(64),
+  title: z.string().min(1).max(MAX_TITLE_LENGTH),
+});
+
+const taskChangeBody = z.object({
+  status: z.enum(TASK_STATUSES).optional(),
+  note: z.string().max(MAX_NOTE_LENGTH).optional(),
+  due: z.string().max(40).nullable().optional(),
+  assignee: z.string().max(64).optional(),
+});
+
+const followUpBody = z.object({
+  in: z.string().max(20).optional(),
+  at: z.string().max(40).optional(),
+  note: z.string().min(1).max(1000),
+  about: z.string().max(64).optional(),
+});
+
 const contactBody = z.object({
   handle: z.string().min(1).max(64),
   name: z.string().min(1).max(80),
@@ -136,6 +179,40 @@ export const agentRoutes = new Hono<AppEnv>()
     const input = await parseBody(c, sendBody);
     return c.json(await sendMessage(c.get("agent"), input), 201);
   })
+  .post("/v1/agent/plans", async (c) => {
+    const { with: target, title, tasks } = await parseBody(c, planBody);
+    const plan = await createPlan(c.get("agent"), { with: target, title, tasks });
+    return c.json({ plan }, 201);
+  })
+  .get("/v1/agent/plans", async (c) => {
+    const target = parseWith(z.string().max(64).optional(), c.req.query("with"));
+    return c.json({ plans: await listPlans(c.get("agent"), { with: target }) });
+  })
+  .get("/v1/agent/plans/:id", async (c) =>
+    c.json({ plan: await getPlan(c.get("agent"), parseWith(z.uuid(), c.req.param("id"))) }),
+  )
+  .post("/v1/agent/plans/:id/tasks", async (c) => {
+    const { tasks } = await parseBody(c, tasksBody);
+    const plan = await addTasks(c.get("agent"), parseWith(z.uuid(), c.req.param("id")), tasks);
+    return c.json({ plan }, 201);
+  })
+  .patch("/v1/agent/plans/:id/tasks/:key", async (c) => {
+    const change = await parseBody(c, taskChangeBody);
+    const plan = await updateTask(
+      c.get("agent"),
+      parseWith(z.uuid(), c.req.param("id")),
+      parseWith(z.string().min(1).max(32), c.req.param("key")),
+      change,
+    );
+    return c.json({ plan });
+  })
+  .post("/v1/agent/follow-ups", async (c) => {
+    const followUp = await scheduleFollowUp(c.get("agent"), await parseBody(c, followUpBody));
+    return c.json({ followUp }, 201);
+  })
+  .get("/v1/agent/follow-ups", async (c) =>
+    c.json({ followUps: await listFollowUps(c.get("agent")) }),
+  )
   .get("/v1/agent/notifications", async (c) => {
     const { wait, after } = parseWith(notificationsQuery, c.req.query());
     return c.json(await waitForNotifications(c.get("agent"), after, wait, c.req.raw.signal));

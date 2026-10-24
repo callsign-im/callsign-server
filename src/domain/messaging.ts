@@ -33,6 +33,7 @@ import {
   bodyContext,
   bumpInbox,
   cleanBody,
+  directKey,
   inboxKnownEmpty,
   likelyActive,
   markInboxEmpty,
@@ -70,6 +71,7 @@ import {
   type RecordedEvent,
 } from "./ledger.ts";
 import { INBOX_EVENTS, MESSAGE_EVENTS, notify, trackListening } from "./notifications.ts";
+import { noticesByIds, takeNotices, type NoticeView } from "./notices.ts";
 import { answersByIds, takeAnswers, type OwnerAnswer } from "./questions.ts";
 
 export {
@@ -121,6 +123,7 @@ export type InboxThread = {
 export type Inbox = {
   threads: InboxThread[];
   ownerAnswers: OwnerAnswer[];
+  notices: NoticeView[];
   hasMore: boolean;
   rules: string | null;
   cursor: number;
@@ -162,10 +165,6 @@ export function acceptance(status: string | null | undefined): Acceptance | null
   if (status === "invited") return "pending";
   if (status === "left" || status === "removed") return "declined";
   return status as Acceptance;
-}
-
-function directKey(a: string, b: string): string {
-  return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
 async function resolvePeer(me: Agent, rawHandle: string): Promise<Agent> {
@@ -553,9 +552,10 @@ export async function checkInbox(agent: Agent): Promise<Inbox> {
   const cursor = await ledgerHead(agent.id);
   const version = await readInboxVersion(agent.id);
   if (await inboxKnownEmpty(agent.id, version)) {
-    return { threads: [], ownerAnswers: [], hasMore: false, rules, cursor };
+    return { threads: [], ownerAnswers: [], notices: [], hasMore: false, rules, cursor };
   }
   const ownerAnswers = await takeAnswers(agent);
+  const notices = await takeNotices(agent);
 
   const rows = await db
     .select({ conversation: conversations, member: conversationMembers })
@@ -621,7 +621,7 @@ export async function checkInbox(agent: Agent): Promise<Inbox> {
 
   const threads = await buildThreads(agent, found);
   if (drained) await markInboxEmpty(agent.id, version);
-  return { threads, ownerAnswers, hasMore, rules, cursor };
+  return { threads, ownerAnswers, notices, hasMore, rules, cursor };
 }
 
 // The cursor is the recipient's ledger sequence, which is assigned under a row lock and therefore
@@ -654,6 +654,12 @@ export async function inboxSince(agent: Agent, since: number): Promise<Inbox> {
     window
       .filter((event) => event.type === "owner.answered")
       .map((event) => String(event.data.questionId)),
+  );
+  const notices = await noticesByIds(
+    agent,
+    window
+      .filter((event) => event.type === "notice.received")
+      .map((event) => String(event.data.noticeId)),
   );
 
   const rows = messageIds.length
@@ -722,7 +728,14 @@ export async function inboxSince(agent: Agent, since: number): Promise<Inbox> {
     if (f.invitation) await markNotified(f.conversation.id, agent.id);
   }
 
-  return { threads: await buildThreads(agent, found), ownerAnswers, hasMore, rules, cursor };
+  return {
+    threads: await buildThreads(agent, found),
+    ownerAnswers,
+    notices,
+    hasMore,
+    rules,
+    cursor,
+  };
 }
 
 // Live events wake a waiting agent at once; polling covers events lost while Valkey is down.
@@ -751,7 +764,8 @@ export async function waitForInbox(
       const seen = wakes;
       const inbox = since === undefined ? await checkInbox(agent) : await inboxSince(agent, since);
       const remaining = deadline - Date.now();
-      const arrived = inbox.threads.length > 0 || inbox.ownerAnswers.length > 0;
+      const arrived =
+        inbox.threads.length > 0 || inbox.ownerAnswers.length > 0 || inbox.notices.length > 0;
       if (arrived || remaining <= 0 || signal?.aborted) return inbox;
       if (wakes !== seen) continue;
       await new Promise<void>((resolve) => {

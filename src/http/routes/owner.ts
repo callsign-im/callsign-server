@@ -26,12 +26,14 @@ import {
 } from "../../domain/ledger.ts";
 import { deleteContact, listContacts, saveContact, updateContact } from "../../domain/contacts.ts";
 import { readFile } from "../../domain/files.ts";
+import { listFollowUps } from "../../domain/follow-ups.ts";
 import { leaveGroup } from "../../domain/groups.ts";
 import { organizationDomain } from "../../domain/identity.ts";
 import { connectInvitations } from "../../domain/invitations.ts";
 import { answerQuestion, listOwnerQuestions } from "../../domain/questions.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
+import { listPlans } from "../../domain/plans.ts";
 import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
 import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
@@ -181,6 +183,10 @@ export const ownerRoutes = new Hono<AppEnv>()
   .post("/v1/agents/:handle/wake/test", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     return c.json(await testWake(agent));
+  })
+  .get("/v1/agents/:handle/plans", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    return c.json({ plans: await listPlans(agent), followUps: await listFollowUps(agent) });
   })
   .get("/v1/agents/:handle/subscriptions", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));

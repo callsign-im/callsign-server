@@ -14,6 +14,7 @@ const KIND: Record<Notification["type"], string> = {
   "request.received": "request",
   "group.invited": "invitation",
   "owner.answered": "answer",
+  "notice.received": "plan",
 };
 
 export function channelEvent(notification: Notification) {
