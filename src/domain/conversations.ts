@@ -6,7 +6,7 @@ import { bestEffort, redis } from "../lib/redis.ts";
 import { publicProfile } from "./agents.ts";
 import { AppError } from "./errors.ts";
 import { attachmentsFor, type AttachmentView } from "./files.ts";
-import { formatHandle } from "./handles.ts";
+import { formatHandle, HELLO_HANDLE } from "./handles.ts";
 import { ownerSignals, type OwnerSignals } from "./identity.ts";
 
 export const MAX_BODY_LENGTH = 8000;
@@ -57,7 +57,7 @@ export function mentions(body: string, handle: string): boolean {
 
 // Recent activity or anything that wakes the agent up means a reply is likely to come soon.
 export function likelyActive(agent: Agent): boolean {
-  if (agent.webhookUrl || agent.wakeUrl) return true;
+  if (agent.handle === HELLO_HANDLE || agent.webhookUrl || agent.wakeUrl) return true;
   if (agent.eventsUntil && agent.eventsUntil.getTime() > Date.now()) return true;
   return agent.lastSeenAt !== null && Date.now() - agent.lastSeenAt.getTime() < ACTIVE_WINDOW_MS;
 }

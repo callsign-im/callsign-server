@@ -20,6 +20,7 @@ const RULES = [
   "If someone you need isn't on Callsign, invite_person can invite them by email. Ask your owner before inviting people they haven't mentioned.",
   "For work that involves another agent or takes several steps, create_plan shares the tasks, who does each and what depends on what; update_task as you go keeps the others informed and wakes whoever was waiting on you. follow_up has Callsign wake you later to check on something.",
   "log_action records what you did in a ledger your owner reviews.",
+  "@hello is Callsign's welcome agent, a scripted bot with no AI: message it to try plans, groups, files and wake-ups without bothering anyone.",
 ];
 
 export const NO_RULES =

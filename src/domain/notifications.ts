@@ -13,7 +13,7 @@ import { enqueue, type AgentNotification } from "../jobs/queue.ts";
 import { subscribeToOwner } from "../lib/events.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
 import { bodyContext, mentions } from "./conversations.ts";
-import { formatHandle } from "./handles.ts";
+import { formatHandle, HELLO_HANDLE } from "./handles.ts";
 import { conversationKey } from "./keys.ts";
 import { ledgerHead, listLedgerAfter, type LedgerEventType } from "./ledger.ts";
 
@@ -60,6 +60,7 @@ export type Alert = {
 };
 
 export async function notify(tx: Tx, recipient: Agent, job: AgentNotification): Promise<void> {
+  if (recipient.handle === HELLO_HANDLE) await enqueue(tx, "hello.reply", job);
   if (recipient.webhookUrl) await enqueue(tx, "agent.webhook", job);
   if (recipient.notifyEmail) await enqueue(tx, "agent.email", job);
   if (recipient.wakeUrl) await enqueue(tx, "agent.wake", job);

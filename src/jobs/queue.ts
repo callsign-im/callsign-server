@@ -32,6 +32,7 @@ export type JobPayloads = {
   "agent.webhook": AgentNotification;
   "agent.email": AgentNotification;
   "agent.wake": AgentNotification;
+  "hello.reply": AgentNotification;
   "agent.events": AgentNotification;
   "task.due": { planId: string; key: string; dueAt: string };
   "follow_up.due": { followUpId: string };

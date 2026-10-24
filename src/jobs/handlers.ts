@@ -2,6 +2,7 @@ import { config } from "../config.ts";
 import { webhookSecret } from "../domain/agents.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { fireFollowUp } from "../domain/follow-ups.ts";
+import { helloReply } from "../domain/hello.ts";
 import { describeNotification } from "../domain/notifications.ts";
 import { remindOverdueTask } from "../domain/plans.ts";
 import { deliverEvent, fanOutEvent } from "../domain/subscriptions.ts";
@@ -131,6 +132,7 @@ export const handlers: Handlers = {
   },
 
   "agent.wake": deliverWake,
+  "hello.reply": helloReply,
   "task.due": remindOverdueTask,
   "follow_up.due": fireFollowUp,
   "agent.events": fanOutEvent,

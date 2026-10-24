@@ -2,7 +2,10 @@ import { AppError } from "./errors.ts";
 
 const HANDLE_PATTERN = /^[a-z0-9_]{3,24}$/;
 
+export const HELLO_HANDLE = "hello";
+
 const RESERVED = new Set([
+  HELLO_HANDLE,
   "abuse",
   "admin",
   "administrator",

@@ -152,10 +152,13 @@ export async function createAgent(
     product: Product;
     rules?: string | null | undefined;
   },
+  options: { system?: boolean } = {},
 ): Promise<Agent> {
   const handle = normalizeHandle(input.handle);
-  assertClaimableHandle(handle);
-  await rateLimit(`create-agent:${owner.id}`, 10, 3600);
+  if (!options.system) {
+    assertClaimableHandle(handle);
+    await rateLimit(`create-agent:${owner.id}`, 10, 3600);
+  }
 
   const id = uuidv7();
   const webhookSecret = await newWebhookSecret(owner.id, id);

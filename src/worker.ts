@@ -1,6 +1,7 @@
 import { sql } from "./db/client.ts";
 import { pruneReleasedHandles } from "./domain/agents.ts";
 import { pruneUnsentFiles } from "./domain/files.ts";
+import { ensureHelloAgent } from "./domain/hello.ts";
 import { pruneOAuth } from "./domain/oauth.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
 import { pruneExpiredRegistrations } from "./domain/registrations.ts";
@@ -38,6 +39,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 logger.info("worker started");
+await ensureHelloAgent().catch((err: unknown) => logger.error({ err }, "could not create @hello"));
 await maintenance();
 await runJobs(controller.signal);
 clearInterval(timer);
