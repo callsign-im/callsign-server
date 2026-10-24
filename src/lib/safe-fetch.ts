@@ -147,11 +147,11 @@ export async function postJson(
   body: string,
   headers: Record<string, string>,
   options: { allowPrivate: boolean; timeoutMs: number },
-): Promise<number> {
+): Promise<{ status: number; body: string }> {
   const res = await send(
     url,
     { method: "POST", headers: { ...headers, "content-type": "application/json" }, body },
     options,
   );
-  return res.status;
+  return { status: res.status, body: res.body.toString("utf8") };
 }

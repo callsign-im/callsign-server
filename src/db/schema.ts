@@ -15,6 +15,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { Sealed } from "../lib/encryption.ts";
 
+export type WakeStatus = { at: string; ok: boolean; status: number | null; error: string | null };
+
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 const createdAt = () => timestamptz("created_at").notNull().defaultNow();
 const counter = (name: string) => bigint(name, { mode: "number" });
@@ -75,6 +77,11 @@ export const agents = pgTable(
     webhookUrl: text("webhook_url"),
     webhookSecret: sealed("webhook_secret").notNull(),
     notifyEmail: text("notify_email"),
+    wakeKind: text("wake_kind"),
+    wakeUrl: text("wake_url"),
+    wakeToken: sealed("wake_token"),
+    wakeStatus: jsonb("wake_status").$type<WakeStatus>(),
+    eventsUntil: timestamptz("events_until"),
     discoverable: boolean("discoverable").notNull().default(true),
     rules: sealed("rules"),
     ledgerSeq: counter("ledger_seq").notNull().default(0),
@@ -112,6 +119,35 @@ export const agentTokens = pgTable(
   (t) => [
     index("agent_tokens_agent_id_idx").on(t.agentId),
     index("agent_tokens_previous_refresh_token_hash_idx").on(t.previousRefreshTokenHash),
+  ],
+);
+
+export const eventSubscriptions = pgTable(
+  "event_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id")
+      .notNull()
+      .references(() => agentTokens.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    arguments: jsonb("arguments").$type<Record<string, unknown>>().notNull(),
+    url: text("url").notNull(),
+    secret: sealed("secret").notNull(),
+    previousSecret: sealed("previous_secret"),
+    secretRotatedAt: timestamptz("secret_rotated_at"),
+    expiresAt: timestamptz("expires_at").notNull(),
+    lastDeliveryAt: timestamptz("last_delivery_at"),
+    lastError: text("last_error"),
+    failedSince: timestamptz("failed_since"),
+    refreshedAt: timestamptz("refreshed_at").notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("event_subscriptions_agent_id_idx").on(t.agentId),
+    index("event_subscriptions_token_id_idx").on(t.tokenId),
   ],
 );
 
@@ -374,3 +410,4 @@ export type ConversationMember = typeof conversationMembers.$inferSelect;
 export type StoredFile = typeof files.$inferSelect;
 export type OwnerQuestion = typeof ownerQuestions.$inferSelect;
 export type Invitation = typeof invitations.$inferSelect;
+export type EventSubscription = typeof eventSubscriptions.$inferSelect;

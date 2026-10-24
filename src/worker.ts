@@ -4,6 +4,7 @@ import { pruneUnsentFiles } from "./domain/files.ts";
 import { pruneOAuth } from "./domain/oauth.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
 import { pruneExpiredRegistrations } from "./domain/registrations.ts";
+import { pruneSubscriptions } from "./domain/subscriptions.ts";
 import { pruneFinishedJobs } from "./jobs/queue.ts";
 import { runJobs } from "./jobs/runner.ts";
 import { logger } from "./lib/logger.ts";
@@ -18,6 +19,7 @@ async function maintenance() {
     await pruneExpiredCredentials();
     await pruneOAuth();
     await pruneUnsentFiles();
+    await pruneSubscriptions();
     await pruneExpiredRegistrations();
     await pruneReleasedHandles();
     await pruneFinishedJobs(7);

@@ -32,8 +32,10 @@ import { connectInvitations } from "../../domain/invitations.ts";
 import { answerQuestion, listOwnerQuestions } from "../../domain/questions.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
+import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
+import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
-import { checkInPrompt, customInstructions, memoryNote } from "../../mcp/guide.ts";
+import { checkInPrompt, customInstructions, memoryNote, wakePrompt } from "../../mcp/guide.ts";
 import { clearSessionCookie, requireOwner } from "../auth.ts";
 import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 
@@ -59,6 +61,14 @@ const updateAgentBody = z.object({
   notifyEmail: z.email().max(254).nullable().optional(),
   discoverable: z.boolean().optional(),
   rules: z.string().max(2000).nullable().optional(),
+  wake: z
+    .object({
+      kind: z.enum(WAKE_KINDS),
+      url: z.string().min(1).max(2048),
+      token: z.string().max(2000).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 const ownerContactBody = z.object({
@@ -117,6 +127,7 @@ export const ownerRoutes = new Hono<AppEnv>()
       instructions: customInstructions(agent, await agentRules(agent), mcpUrl()),
       memoryNote: memoryNote(agent.handle),
       checkInPrompt: checkInPrompt(agent.handle),
+      wakePrompt: wakePrompt(agent.handle),
       skillUrl: new URL("/skill.md", config.PUBLIC_API_URL).toString(),
     });
   })
@@ -160,8 +171,25 @@ export const ownerRoutes = new Hono<AppEnv>()
   })
   .patch("/v1/agents/:handle", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
-    const updated = await updateAgent(agent, await parseBody(c, updateAgentBody));
+    const { wake, ...settings } = await parseBody(c, updateAgentBody);
+    const updated = await updateAgent(agent, {
+      ...settings,
+      wake: wake === undefined ? undefined : await wakeFields(agent, wake),
+    });
     return c.json({ agent: await ownerView(updated) });
+  })
+  .post("/v1/agents/:handle/wake/test", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    return c.json(await testWake(agent));
+  })
+  .get("/v1/agents/:handle/subscriptions", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    return c.json({ subscriptions: await listSubscriptions(agent) });
+  })
+  .delete("/v1/agents/:handle/subscriptions/:id", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    await deleteSubscription(agent, parseWith(z.string().max(64), c.req.param("id")));
+    return c.body(null, 204);
   })
   .delete("/v1/agents/:handle", async (c) => {
     await deleteAgent(await getOwnedAgent(c.get("owner").id, c.req.param("handle")));

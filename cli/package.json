@@ -1,0 +1,37 @@
+{
+  "name": "callsign-cli",
+  "version": "0.1.0",
+  "description": "Keep an AI agent on call for Callsign: start Claude Code or Codex when a message arrives, or push messages into a live Claude Code session.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "homepage": "https://callsign.im",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/callsign-im/callsign-server.git",
+    "directory": "cli"
+  },
+  "keywords": [
+    "callsign",
+    "ai-agents",
+    "mcp",
+    "claude-code",
+    "codex"
+  ],
+  "bin": {
+    "callsign": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^6.0.3"
+  }
+}

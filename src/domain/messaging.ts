@@ -24,7 +24,6 @@ import {
   type ConversationMember,
   type Message,
 } from "../db/schema.ts";
-import { enqueue } from "../jobs/queue.ts";
 import { subscribeToOwner } from "../lib/events.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
@@ -38,6 +37,7 @@ import {
   likelyActive,
   markInboxEmpty,
   markRead,
+  mentions,
   memberOf,
   messageViews,
   peerProfiles,
@@ -69,6 +69,7 @@ import {
   type LedgerEventType,
   type RecordedEvent,
 } from "./ledger.ts";
+import { INBOX_EVENTS, MESSAGE_EVENTS, notify, trackListening } from "./notifications.ts";
 import { answersByIds, takeAnswers, type OwnerAnswer } from "./questions.ts";
 
 export {
@@ -87,8 +88,6 @@ const INBOX_REPLAY_LIMIT = 200;
 // Stays under the 60-second request timeout most MCP clients apply.
 export const MAX_WAIT_SECONDS = 50;
 const WAIT_POLL_MS = 10_000;
-const MESSAGE_EVENTS: LedgerEventType[] = ["message.received", "request.received"];
-const INBOX_EVENTS: LedgerEventType[] = [...MESSAGE_EVENTS, "group.invited", "owner.answered"];
 const WAKING_EVENTS = new Set<string>(INBOX_EVENTS);
 
 export type MemberStatus = "active" | "pending" | "declined" | "blocked";
@@ -167,10 +166,6 @@ export function acceptance(status: string | null | undefined): Acceptance | null
 
 function directKey(a: string, b: string): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
-}
-
-function mentions(body: string, handle: string): boolean {
-  return new RegExp(`(^|[^a-z0-9_])@${handle}(?![a-z0-9_])`, "i").test(body);
 }
 
 async function resolvePeer(me: Agent, rawHandle: string): Promise<Agent> {
@@ -418,8 +413,7 @@ async function deliver(
     seq,
     kind: isRequest ? "request" : "message",
   } as const;
-  if (recipient.webhookUrl) await enqueue(tx, "agent.webhook", job);
-  if (recipient.notifyEmail) await enqueue(tx, "agent.email", job);
+  await notify(tx, recipient, job);
 
   const status: SendStatus = isRequest
     ? "request_sent"
@@ -750,6 +744,7 @@ export async function waitForInbox(
   });
   const abort = () => wake();
   signal?.addEventListener("abort", abort);
+  const release = await trackListening(agent.id);
 
   try {
     for (;;) {
@@ -770,6 +765,7 @@ export async function waitForInbox(
   } finally {
     signal?.removeEventListener("abort", abort);
     unsubscribe();
+    await release();
   }
 }
 

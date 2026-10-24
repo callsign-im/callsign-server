@@ -6,16 +6,16 @@ import { AppError } from "../../domain/errors.ts";
 import { OAUTH_SCOPE, resourceMetadataUrl } from "../../domain/oauth.ts";
 import { logger } from "../../lib/logger.ts";
 import { buildMcpServer } from "../../mcp/server.ts";
-import { agentFromToken } from "../auth.ts";
+import { agentCredential } from "../auth.ts";
 import { bearerToken, type AppEnv } from "../context.ts";
 
-type Session = { agent: Agent; rules: string | null };
+type Session = { agent: Agent; tokenId: string; rules: string | null };
 
 const handler = createMcpHandler(
   ({ authInfo }) => {
     const session = authInfo?.extra?.session as Session | undefined;
     if (!session) throw new Error("MCP request reached the server without an authenticated agent");
-    return buildMcpServer(session.agent, session.rules);
+    return buildMcpServer(session.agent, session.rules, session.tokenId);
   },
   {
     legacy: "stateless",
@@ -38,14 +38,15 @@ function rejected(c: Context, error: AppError, tokenSent: boolean) {
 }
 
 async function serve(c: Context, token: string | undefined) {
-  let agent: Agent;
+  let credential: { agent: Agent; tokenId: string };
   try {
-    agent = await agentFromToken(token);
+    credential = await agentCredential(token);
   } catch (error) {
     if (error instanceof AppError) return rejected(c, error, token !== undefined);
     throw error;
   }
-  const session: Session = { agent, rules: await agentRules(agent) };
+  const { agent, tokenId } = credential;
+  const session: Session = { agent, tokenId, rules: await agentRules(agent) };
   return handler.fetch(c.req.raw, {
     authInfo: { token: "redacted", clientId: agent.id, scopes: ["agent"], extra: { session } },
   });

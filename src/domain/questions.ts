@@ -11,6 +11,7 @@ import { AppError } from "./errors.ts";
 import { formatHandle } from "./handles.ts";
 import { ownerKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
+import { notify } from "./notifications.ts";
 
 export const MAX_QUESTION_LENGTH = 2000;
 
@@ -125,7 +126,7 @@ export async function answerQuestion(ownerId: string, id: string, answer: string
       .returning();
     if (!row) throw new AppError("conflict", "This question was already answered.");
     const job = { kind: "answer", agentId: found.agent.id, questionId: id } as const;
-    if (found.agent.webhookUrl) await enqueue(tx, "agent.webhook", job);
+    await notify(tx, found.agent, job);
     const recorded = await appendLedgerEvent(tx, found.agent, {
       type: "owner.answered",
       actor: "owner",

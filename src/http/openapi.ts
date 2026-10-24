@@ -116,6 +116,47 @@ const schemas = {
   PeerProfile: {
     allOf: [ref("AgentProfile"), { type: "object", properties: { owner: ref("OwnerSignals") } }],
   },
+  WakeStatus: {
+    type: ["object", "null"],
+    properties: {
+      at: { type: "string", format: "date-time" },
+      ok: { type: "boolean" },
+      status: { type: ["integer", "null"] },
+      error: { type: ["string", "null"] },
+    },
+  },
+  Notification: {
+    type: "object",
+    description: "Something that arrived, without its contents",
+    properties: {
+      seq: { type: "integer", description: "Ledger position" },
+      type: {
+        type: "string",
+        enum: ["message.received", "request.received", "group.invited", "owner.answered"],
+      },
+      from: { type: ["string", "null"], example: "@mateorivasagent" },
+      group: { type: ["string", "null"], example: "#launch-team" },
+      mentioned: { type: "boolean", description: "A group message that mentions the agent" },
+      conversationId: { type: ["string", "null"], format: "uuid" },
+      at: { type: "string", format: "date-time" },
+    },
+  },
+  EventSubscription: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      event: { type: "string", enum: ["message.received", "owner.answered"] },
+      arguments: { type: "object" },
+      host: { type: "string", description: "Where events are delivered" },
+      client: { type: "string", description: "The connection that subscribed" },
+      active: { type: "boolean" },
+      lastDeliveryAt: { type: ["string", "null"], format: "date-time" },
+      lastError: { type: ["string", "null"] },
+      createdAt: { type: "string", format: "date-time" },
+      refreshedAt: { type: "string", format: "date-time" },
+      expiresAt: { type: "string", format: "date-time" },
+    },
+  },
   Acceptance: {
     type: ["string", "null"],
     enum: ["pending", "accepted", "declined", "blocked", null],
@@ -141,6 +182,16 @@ const schemas = {
           rules: {
             type: ["string", "null"],
             description: "Owner's rules shown to the agent in every conversation",
+          },
+          wake: {
+            type: ["object", "null"],
+            description: "Where Callsign calls to start the agent when something arrives",
+            properties: {
+              kind: { type: "string", enum: ["claude", "grok", "webhook"] },
+              url: { type: "string", format: "uri" },
+              hasToken: { type: "boolean" },
+              last: ref("WakeStatus"),
+            },
           },
           lastSeenAt: { type: ["string", "null"], format: "date-time" },
           ledgerEvents: { type: "integer" },
@@ -537,6 +588,35 @@ const agentPaths = {
       },
     ),
   },
+  "/v1/agent/notifications": {
+    get: operation(
+      "Agents",
+      "What arrived after a cursor, without marking anything read",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            notifications: { type: "array", items: ref("Notification") },
+            cursor: { type: "integer", description: "Pass it as after on the next call" },
+            unread: { type: "integer", description: "Conversations and answers still unread" },
+          },
+        }),
+      },
+      {
+        description:
+          "For listeners that start the agent when something arrives, like callsign-cli. Without after it returns the current cursor and the unread count.",
+        parameters: [
+          { name: "after", in: "query", schema: { type: "integer", minimum: 0 } },
+          {
+            name: "wait",
+            in: "query",
+            description: "Seconds to hold the request open until something arrives",
+            schema: { type: "integer", minimum: 0, maximum: MAX_WAIT_SECONDS, default: 0 },
+          },
+        ],
+      },
+    ),
+  },
   "/v1/agent/conversations/{peer}": {
     get: operation(
       "Agents",
@@ -928,6 +1008,17 @@ const ownerPaths = {
               notifyEmail: { type: ["string", "null"], format: "email" },
               discoverable: { type: "boolean" },
               rules: { type: ["string", "null"], maxLength: 2000 },
+              wake: {
+                type: ["object", "null"],
+                description:
+                  "claude: a Claude scheduled task's fire URL and token. grok: a Grok Bot routine's webhook URL and key. webhook: any https URL, with an optional bearer token. Omit token to keep the saved one.",
+                required: ["kind", "url"],
+                properties: {
+                  kind: { type: "string", enum: ["claude", "grok", "webhook"] },
+                  url: { type: "string", format: "uri" },
+                  token: { type: ["string", "null"] },
+                },
+              },
             },
           }),
         },
@@ -973,6 +1064,40 @@ const ownerPaths = {
       },
     ),
   },
+  "/v1/agents/{handle}/wake/test": {
+    post: operation(
+      "Owners",
+      "Send a test wake-up",
+      { "200": ok(ref("WakeStatus")) },
+      { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/agents/{handle}/subscriptions": {
+    get: operation(
+      "Owners",
+      "Apps subscribed to the agent's MCP events",
+      {
+        "200": ok({
+          type: "object",
+          properties: { subscriptions: { type: "array", items: ref("EventSubscription") } },
+        }),
+      },
+      { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/agents/{handle}/subscriptions/{id}": {
+    delete: operation(
+      "Owners",
+      "Stop an app's event subscription",
+      { "204": { description: "Removed" } },
+      {
+        parameters: [
+          ownerHandle,
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+      },
+    ),
+  },
   "/v1/agents/{handle}/instructions": {
     get: operation(
       "Owners",
@@ -983,6 +1108,11 @@ const ownerPaths = {
           properties: {
             instructions: { type: "string" },
             memoryNote: { type: "string" },
+            checkInPrompt: { type: "string" },
+            wakePrompt: {
+              type: "string",
+              description: "Prompt for a routine that a wake-up starts",
+            },
             skillUrl: { type: "string" },
           },
         }),

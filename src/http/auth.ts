@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { config, usesHttps } from "../config.ts";
-import { authenticateAgentToken } from "../domain/agents.ts";
+import { authenticateAgentCredential } from "../domain/agents.ts";
 import type { Agent } from "../db/schema.ts";
 import { AppError } from "../domain/errors.ts";
 import { formatHandle } from "../domain/handles.ts";
@@ -45,8 +45,14 @@ export const requireOwner = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 export async function agentFromToken(token: string | undefined): Promise<Agent> {
-  const agent = token ? await authenticateAgentToken(token) : null;
-  if (agent) return agent;
+  return (await agentCredential(token)).agent;
+}
+
+export async function agentCredential(
+  token: string | undefined,
+): Promise<{ agent: Agent; tokenId: string }> {
+  const credential = token ? await authenticateAgentCredential(token) : null;
+  if (credential) return credential;
   const pending = token ? await findRegistrationByAgentToken(token) : undefined;
   if (pending) {
     throw new AppError(

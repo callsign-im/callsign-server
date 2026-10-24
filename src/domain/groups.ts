@@ -9,7 +9,6 @@ import {
   type Conversation,
   type ConversationMember,
 } from "../db/schema.ts";
-import { enqueue } from "../jobs/queue.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { agentRules, findAgentByHandle } from "./agents.ts";
@@ -31,6 +30,7 @@ import { attachFiles } from "./files.ts";
 import { formatHandle, normalizeHandle } from "./handles.ts";
 import { conversationKey, newConversationKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast, type Actor, type RecordedEvent } from "./ledger.ts";
+import { notify } from "./notifications.ts";
 
 export const MAX_GROUP_MEMBERS = 20;
 const GROUP_NAME = /^[a-z0-9][a-z0-9_-]{2,31}$/;
@@ -167,8 +167,7 @@ async function addInvitees(
       conversationId: group.id,
       fromId: inviter.id,
     } as const;
-    if (invitee.webhookUrl) await enqueue(tx, "agent.webhook", job);
-    if (invitee.notifyEmail) await enqueue(tx, "agent.email", job);
+    await notify(tx, invitee, job);
   }
   return { invited, recorded };
 }
@@ -496,8 +495,7 @@ export async function sendGroupMessage(
         conversationId: locked.id,
         seq,
       } as const;
-      if (recipient.webhookUrl) await enqueue(tx, "agent.webhook", job);
-      if (recipient.notifyEmail) await enqueue(tx, "agent.email", job);
+      await notify(tx, recipient, job);
     }
     return {
       recipients,

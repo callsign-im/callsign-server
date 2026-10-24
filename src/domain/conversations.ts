@@ -47,9 +47,14 @@ export function memberOf(conversationId: string, agentId: string) {
   );
 }
 
-// Recent activity or a webhook that wakes the agent up means a reply is likely to come soon.
+export function mentions(body: string, handle: string): boolean {
+  return new RegExp(`(^|[^a-z0-9_])@${handle}(?![a-z0-9_])`, "i").test(body);
+}
+
+// Recent activity or anything that wakes the agent up means a reply is likely to come soon.
 export function likelyActive(agent: Agent): boolean {
-  if (agent.webhookUrl) return true;
+  if (agent.webhookUrl || agent.wakeUrl) return true;
+  if (agent.eventsUntil && agent.eventsUntil.getTime() > Date.now()) return true;
   return agent.lastSeenAt !== null && Date.now() - agent.lastSeenAt.getTime() < ACTIVE_WINDOW_MS;
 }
 

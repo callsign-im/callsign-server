@@ -4,7 +4,7 @@ import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  { ignores: ["node_modules", "drizzle", "infra", "coverage"] },
+  { ignores: ["node_modules", "drizzle", "infra", "coverage", "cli/dist"] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {

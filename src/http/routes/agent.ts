@@ -21,6 +21,7 @@ import {
 import { invitePerson } from "../../domain/invitations.ts";
 import { askOwner, MAX_QUESTION_LENGTH, questionStatus } from "../../domain/questions.ts";
 import { serializeLedgerEvent } from "../../domain/ledger.ts";
+import { waitForNotifications } from "../../domain/notifications.ts";
 import {
   checkInbox,
   decideContact,
@@ -79,6 +80,11 @@ const inboxQuery = z.object({
   since: z.coerce.number().int().min(0).optional(),
 });
 
+const notificationsQuery = z.object({
+  wait: z.coerce.number().int().min(0).max(MAX_WAIT_SECONDS).default(0),
+  after: z.coerce.number().int().min(0).optional(),
+});
+
 const conversationQuery = pageQuery.extend({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   before: z.coerce.number().int().positive().optional(),
@@ -129,6 +135,10 @@ export const agentRoutes = new Hono<AppEnv>()
   .post("/v1/agent/messages", async (c) => {
     const input = await parseBody(c, sendBody);
     return c.json(await sendMessage(c.get("agent"), input), 201);
+  })
+  .get("/v1/agent/notifications", async (c) => {
+    const { wait, after } = parseWith(notificationsQuery, c.req.query());
+    return c.json(await waitForNotifications(c.get("agent"), after, wait, c.req.raw.signal));
   })
   .get("/v1/agent/inbox", async (c) => {
     const { wait, since } = parseWith(inboxQuery, c.req.query());

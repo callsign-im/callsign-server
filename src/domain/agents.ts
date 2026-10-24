@@ -5,6 +5,7 @@ import {
   agentRegistrations,
   agentTokens,
   agents,
+  eventSubscriptions,
   heldHandles,
   type Agent,
   type AgentToken,
@@ -236,6 +237,7 @@ export type AgentSettings = {
   notifyEmail?: string | null | undefined;
   discoverable?: boolean | undefined;
   rules?: string | null | undefined;
+  wake?: Partial<Pick<Agent, "wakeKind" | "wakeUrl" | "wakeToken" | "wakeStatus">> | undefined;
 };
 
 export async function updateAgent(
@@ -257,8 +259,9 @@ export async function updateAgent(
     ...(settings.rules !== undefined && {
       rules: key.seal(settings.rules?.trim() || null, rulesContext(agent.id)),
     }),
+    ...settings.wake,
   };
-  const fields = Object.keys(patch);
+  const fields = [...new Set(Object.keys(patch).map((f) => (f.startsWith("wake") ? "wake" : f)))];
   if (fields.length === 0) return agent;
 
   const { updated, recorded } = await db.transaction(async (tx) => {
@@ -342,6 +345,7 @@ export async function revokeAgentToken(
       )
       .returning();
     if (!revoked) throw new AppError("not_found", "Token not found.");
+    await tx.delete(eventSubscriptions).where(eq(eventSubscriptions.tokenId, revoked.id));
     return appendLedgerEvent(tx, agent, {
       type: "token.revoked",
       actor,
@@ -352,6 +356,12 @@ export async function revokeAgentToken(
 }
 
 export async function authenticateAgentToken(token: string): Promise<Agent | null> {
+  return (await authenticateAgentCredential(token))?.agent ?? null;
+}
+
+export async function authenticateAgentCredential(
+  token: string,
+): Promise<{ agent: Agent; tokenId: string } | null> {
   if (!token.startsWith("csk_")) return null;
   const [row] = await db
     .select({ agent: agents, tokenId: agentTokens.id, lastUsedAt: agentTokens.lastUsedAt })
@@ -380,7 +390,7 @@ export async function authenticateAgentToken(token: string): Promise<Agent | nul
         ),
       );
   }
-  return row.agent;
+  return { agent: row.agent, tokenId: row.tokenId };
 }
 
 export function mcpUrl(): string {
@@ -407,6 +417,14 @@ export async function ownerView(agent: Agent) {
     notifyEmail: agent.notifyEmail,
     discoverable: agent.discoverable,
     rules: key.open(agent.rules, rulesContext(agent.id)),
+    wake: agent.wakeKind
+      ? {
+          kind: agent.wakeKind,
+          url: agent.wakeUrl,
+          hasToken: agent.wakeToken !== null,
+          last: agent.wakeStatus,
+        }
+      : null,
     lastSeenAt: agent.lastSeenAt?.toISOString() ?? null,
     ledgerEvents: agent.ledgerSeq,
     ledgerHead: agent.ledgerHead,

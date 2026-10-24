@@ -71,6 +71,13 @@
       "when": 1792799412941,
       "tag": "0009_groups_files_questions_invitations",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792816587440,
+      "tag": "0010_wake_ups_and_event_subscriptions",
+      "breakpoints": true
     }
   ]
 }

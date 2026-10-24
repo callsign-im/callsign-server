@@ -35,7 +35,9 @@ export type LedgerEventType =
   | "owner.asked"
   | "owner.answered"
   | "invitation.sent"
-  | "invitation.accepted";
+  | "invitation.accepted"
+  | "subscription.created"
+  | "subscription.removed";
 
 export type Actor = "agent" | "owner" | "peer";
 

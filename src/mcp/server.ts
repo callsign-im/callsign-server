@@ -1,4 +1,9 @@
-import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  ProtocolError,
+  type CallToolResult,
+  type ServerCapabilities,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Agent } from "../db/schema.ts";
 import {
@@ -47,6 +52,7 @@ import {
   type SendResult,
 } from "../domain/messaging.ts";
 import { askOwner, MAX_QUESTION_LENGTH, type OwnerAnswer } from "../domain/questions.ts";
+import { eventCatalog, EventsError, subscribe, unsubscribe } from "../domain/subscriptions.ts";
 import { logger } from "../lib/logger.ts";
 import { SERVER_NAME, VERSION } from "../version.ts";
 import { ownerRules, serverInstructions } from "./guide.ts";
@@ -290,11 +296,83 @@ function describeMatches(query: string, matches: AgentMatch[]): string {
   ].join("\n");
 }
 
-export function buildMcpServer(agent: Agent, rules: string | null): McpServer {
+// Codes follow ChatGPT's implementation of the MCP events draft.
+const EVENT_ERROR_CODES: Record<EventsError["kind"], number> = {
+  invalid: -32602,
+  not_found: -32011,
+  forbidden: -32012,
+  exhausted: -32013,
+  unsupported: -32014,
+  callback: -32015,
+};
+
+async function events<T>(action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (error instanceof EventsError) {
+      throw new ProtocolError(EVENT_ERROR_CODES[error.kind], error.message, error.data);
+    }
+    if (error instanceof AppError && error.code === "rate_limited") {
+      throw new ProtocolError(EVENT_ERROR_CODES.exhausted, error.message, {
+        limit: "verification",
+      });
+    }
+    logger.error({ err: error }, "mcp events request failed");
+    throw new ProtocolError(-32603, "Callsign hit an internal error.");
+  }
+}
+
+const Delivery = z.looseObject({
+  mode: z.string(),
+  url: z.string(),
+  secret: z.string().optional(),
+});
+
+function registerEvents(server: McpServer, agent: Agent, tokenId: string) {
+  server.server.setRequestHandler(
+    "events/list",
+    { params: z.looseObject({ cursor: z.string().optional() }).optional() },
+    () => ({ events: eventCatalog() }),
+  );
+  server.server.setRequestHandler(
+    "events/subscribe",
+    {
+      params: z.looseObject({
+        name: z.string(),
+        arguments: z.record(z.string(), z.unknown()).optional(),
+        delivery: Delivery,
+        cursor: z.string().nullable().optional(),
+        ttlMs: z.number().int().nullable().optional(),
+      }),
+    },
+    (params) => events(() => subscribe(agent, tokenId, params)),
+  );
+  server.server.setRequestHandler(
+    "events/unsubscribe",
+    {
+      params: z.looseObject({
+        name: z.string(),
+        arguments: z.record(z.string(), z.unknown()).optional(),
+        delivery: Delivery,
+      }),
+    },
+    async (params) => {
+      await unsubscribe(agent, { ...params, url: params.delivery.url });
+      return {};
+    },
+  );
+}
+
+export function buildMcpServer(agent: Agent, rules: string | null, tokenId: string): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, title: "Callsign", version: VERSION },
-    { instructions: serverInstructions(agent, rules) },
+    {
+      instructions: serverInstructions(agent, rules),
+      capabilities: { events: {} } as ServerCapabilities,
+    },
   );
+  registerEvents(server, agent, tokenId);
 
   server.registerTool(
     "whoami",

@@ -30,6 +30,15 @@ export type JobPayloads = {
   };
   "agent.webhook": AgentNotification;
   "agent.email": AgentNotification;
+  "agent.wake": AgentNotification;
+  "agent.events": AgentNotification;
+  "event.delivery": {
+    subscriptionId: string;
+    eventId: string;
+    name: string;
+    timestamp: string;
+    data: Record<string, unknown>;
+  };
 };
 
 export type JobKind = keyof JobPayloads;
@@ -38,8 +47,9 @@ export async function enqueue<K extends JobKind>(
   executor: Executor,
   kind: K,
   payload: JobPayloads[K],
+  options: { runAt?: Date } = {},
 ): Promise<void> {
-  await executor.insert(jobs).values({ id: uuidv7(), kind, payload });
+  await executor.insert(jobs).values({ id: uuidv7(), kind, payload, ...options });
 }
 
 const LOCK_SECONDS = 300;

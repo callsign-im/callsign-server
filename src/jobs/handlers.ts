@@ -1,93 +1,19 @@
-import { and, eq } from "drizzle-orm";
 import { config } from "../config.ts";
-import { db } from "../db/client.ts";
-import { agents, conversations, messages, type Agent } from "../db/schema.ts";
 import { webhookSecret } from "../domain/agents.ts";
 import { formatHandle } from "../domain/handles.ts";
+import { describeNotification } from "../domain/notifications.ts";
+import { deliverEvent, fanOutEvent } from "../domain/subscriptions.ts";
+import { deliverWake } from "../domain/wake.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
 import { sendMail } from "../lib/mailer.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
 import { postJson } from "../lib/safe-fetch.ts";
-import type { AgentNotification, JobKind, JobPayloads } from "./queue.ts";
+import type { JobKind, JobPayloads } from "./queue.ts";
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const EMAIL_THROTTLE_SECONDS = 900;
 
 type Handlers = { [K in JobKind]: (payload: JobPayloads[K], jobId: string) => Promise<void> };
-
-type Notice = {
-  recipient: Agent;
-  event: Record<string, unknown>;
-  subject: string;
-  summary: string;
-  throttleKey: string;
-};
-
-async function agentById(id: string): Promise<Agent | undefined> {
-  const [agent] = await db.select().from(agents).where(eq(agents.id, id));
-  return agent;
-}
-
-async function describe(payload: AgentNotification): Promise<Notice | null> {
-  const recipient = await agentById(payload.agentId);
-  if (!recipient) return null;
-  const to = formatHandle(recipient.handle);
-
-  if (payload.kind === "answer") {
-    return {
-      recipient,
-      event: { type: "owner.answered", agent: to, questionId: payload.questionId },
-      subject: `Your owner answered ${to} on Callsign`,
-      summary: `The owner of ${to} answered one of its questions.`,
-      throttleKey: `notify-email:${recipient.id}:answers`,
-    };
-  }
-
-  const [conversation] = await db
-    .select()
-    .from(conversations)
-    .where(eq(conversations.id, payload.conversationId));
-  if (!conversation) return null;
-  const group = conversation.name ? `#${conversation.name}` : null;
-
-  if (payload.kind === "invitation") {
-    const inviter = await agentById(payload.fromId);
-    if (!inviter || !group) return null;
-    const from = formatHandle(inviter.handle);
-    return {
-      recipient,
-      event: { type: "group.invited", agent: to, from, group, conversationId: conversation.id },
-      subject: `${from} invited ${to} to ${group} on Callsign`,
-      summary: `${from} invited ${to} to the group ${group}.`,
-      throttleKey: `notify-email:${recipient.id}:invite:${conversation.id}`,
-    };
-  }
-
-  const [row] = await db
-    .select({ message: messages, sender: agents })
-    .from(messages)
-    .innerJoin(agents, eq(agents.id, messages.senderId))
-    .where(and(eq(messages.conversationId, conversation.id), eq(messages.seq, payload.seq)));
-  if (!row) return null;
-  const from = formatHandle(row.sender.handle);
-  return {
-    recipient,
-    event: {
-      type: payload.kind === "request" ? "request.received" : "message.received",
-      agent: to,
-      from,
-      ...(group && { group }),
-      conversationId: conversation.id,
-      messageId: row.message.id,
-      sentAt: row.message.createdAt.toISOString(),
-    },
-    subject: group
-      ? `${from} wrote in ${group} on Callsign`
-      : `${from} sent a message to ${to} on Callsign`,
-    summary: group ? `${from} wrote in ${group}.` : `${from} sent a message to ${to}.`,
-    throttleKey: `notify-email:${recipient.id}:${conversation.id}`,
-  };
-}
 
 export function signWebhook(secret: string, timestamp: number, body: string): string {
   return `t=${timestamp},v1=${hmacSha256(secret, `${timestamp}.${body}`)}`;
@@ -158,14 +84,14 @@ export const handlers: Handlers = {
   },
 
   async "agent.webhook"(payload, jobId) {
-    const notice = await describe(payload);
+    const notice = await describeNotification(payload);
     const url = notice?.recipient.webhookUrl;
     if (!notice || !url) return;
 
     const body = JSON.stringify(notice.event);
     const secret = await webhookSecret(notice.recipient);
     const timestamp = Math.floor(Date.now() / 1000);
-    const status = await postJson(
+    const { status } = await postJson(
       new URL(url),
       body,
       {
@@ -179,7 +105,7 @@ export const handlers: Handlers = {
   },
 
   async "agent.email"(payload) {
-    const notice = await describe(payload);
+    const notice = await describeNotification(payload);
     const to = notice?.recipient.notifyEmail;
     if (!notice || !to) return;
 
@@ -201,4 +127,8 @@ export const handlers: Handlers = {
       ].join("\n"),
     });
   },
+
+  "agent.wake": deliverWake,
+  "agent.events": fanOutEvent,
+  "event.delivery": deliverEvent,
 };

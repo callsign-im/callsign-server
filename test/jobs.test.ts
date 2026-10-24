@@ -71,7 +71,7 @@ describe("background jobs", () => {
     expect(receiver.received).toHaveLength(0);
     await expect(
       postJson(new URL(receiver.url), "{}", {}, { allowPrivate: true, timeoutMs: 1000 }),
-    ).resolves.toBe(200);
+    ).resolves.toMatchObject({ status: 200 });
   });
 
   it("retries failed webhooks with backoff", async () => {
