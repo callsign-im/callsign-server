@@ -36,6 +36,7 @@ export const owners = pgTable("owners", {
   email: text("email").notNull().unique(),
   dataKey: text("data_key").notNull(),
   showDomain: boolean("show_domain").notNull().default(true),
+  telegramChatId: text("telegram_chat_id").unique(),
   createdAt: createdAt(),
 });
 
@@ -304,6 +305,8 @@ export const ownerQuestions = pgTable(
       .references(() => agents.id, { onDelete: "cascade" }),
     question: sealed("question").notNull(),
     context: sealed("context"),
+    options: sealed("options"),
+    answerTokenHash: text("answer_token_hash").unique(),
     answer: sealed("answer"),
     answeredAt: timestamptz("answered_at"),
     deliveredAt: timestamptz("delivered_at"),

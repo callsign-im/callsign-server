@@ -31,6 +31,9 @@ budget_alert_emails = ["ops@example.com"]
 # Owners who review abuse reports in the dashboard.
 # admin_emails = ["you@example.com"]
 
+# Bot from @BotFather that brings agents' questions to owners on Telegram.
+# telegram_bot_token = "123456:ABC..."
+
 # Email. smtp_url sends through another provider, for example while SES is in the sandbox.
 # Set enable_ses = false as well to drop SES entirely.
 # smtp_url   = "smtps://user:password@smtp.example.com:465"

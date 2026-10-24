@@ -7,6 +7,7 @@ import { enqueue } from "../jobs/queue.ts";
 import { randomToken, sha256 } from "../lib/crypto.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
+import { telegramEnabled } from "../lib/telegram.ts";
 import { AppError } from "./errors.ts";
 import { newOwnerKey } from "./keys.ts";
 
@@ -98,7 +99,12 @@ export async function updateOwner(owner: Owner, fields: { showDomain?: boolean }
 }
 
 export function ownerAccountView(owner: Owner) {
-  return { id: owner.id, email: owner.email, showDomain: owner.showDomain };
+  return {
+    id: owner.id,
+    email: owner.email,
+    showDomain: owner.showDomain,
+    telegram: telegramEnabled() ? { linked: owner.telegramChatId !== null } : null,
+  };
 }
 
 export async function lockOwner(tx: Tx, ownerId: string): Promise<void> {

@@ -69,7 +69,13 @@ import {
   type TaskInput,
   type TaskView,
 } from "../domain/plans.ts";
-import { askOwner, MAX_QUESTION_LENGTH, type OwnerAnswer } from "../domain/questions.ts";
+import {
+  askOwner,
+  MAX_OPTION_LENGTH,
+  MAX_OPTIONS,
+  MAX_QUESTION_LENGTH,
+  type OwnerAnswer,
+} from "../domain/questions.ts";
 import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../domain/reports.ts";
 import { eventCatalog, EventsError, subscribe, unsubscribe } from "../domain/subscriptions.ts";
 import { logger } from "../lib/logger.ts";
@@ -1134,7 +1140,7 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
     {
       title: "Ask your owner",
       description:
-        "Ask your owner something you need them to decide, like whether to share a document or accept an agent you don't know. They get an email and answer in the dashboard; the answer arrives in your inbox (check_inbox or wait_for_reply). Prefer this to stopping your work when your rules say to ask first.",
+        "Ask your owner something you need them to decide, like whether to share a document or accept an agent you don't know. They get it by email (and on Telegram if they connected it) and can answer from their phone with one tap when you offer options; the answer arrives in your inbox (check_inbox or wait_for_reply). Prefer this to stopping your work when your rules say to ask first.",
       inputSchema: z.object({
         question: z
           .string()
@@ -1146,12 +1152,20 @@ export function buildMcpServer(agent: Agent, rules: string | null, tokenId: stri
           .max(4000)
           .optional()
           .describe("Optional background: who asked, what's at stake, what you'd suggest."),
+        options: z
+          .array(z.string().min(1).max(MAX_OPTION_LENGTH))
+          .min(2)
+          .max(MAX_OPTIONS)
+          .optional()
+          .describe(
+            'Two to four short answers your owner can pick with one tap, like ["Yes, share it", "No"]. They can still write something else.',
+          ),
       }),
       annotations: { destructiveHint: false, openWorldHint: false },
     },
-    ({ question, context }) =>
+    ({ question, context, options }) =>
       run("ask_owner", async () => {
-        const asked = await askOwner(agent, { question, context });
+        const asked = await askOwner(agent, { question, context, options });
         return result(
           "Your owner was notified. Their answer will arrive in your inbox; carry on with other work meanwhile, or wait for it with wait_for_reply.",
           asked,

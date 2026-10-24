@@ -1,6 +1,7 @@
 import { config } from "../config.ts";
 import { PRODUCTS } from "../domain/agents.ts";
 import { MAX_BODY_LENGTH, MAX_WAIT_SECONDS } from "../domain/messaging.ts";
+import { MAX_OPTION_LENGTH, MAX_OPTIONS } from "../domain/questions.ts";
 import { MAX_REPORT_DETAILS, REPORT_REASONS } from "../domain/reports.ts";
 import { VERSION } from "../version.ts";
 
@@ -390,9 +391,18 @@ const schemas = {
       id: { type: "string", format: "uuid" },
       question: { type: "string" },
       context: { type: ["string", "null"] },
+      options: { type: "array", items: { type: "string" } },
       answer: { type: ["string", "null"] },
       askedAt: { type: "string", format: "date-time" },
       answeredAt: { type: ["string", "null"], format: "date-time" },
+    },
+  },
+  Reply: {
+    type: "object",
+    description: "Either the index of one of the question's options or a written answer.",
+    properties: {
+      option: { type: "integer", minimum: 0, maximum: MAX_OPTIONS - 1 },
+      answer: { type: "string", maxLength: 4000 },
     },
   },
   Contact: {
@@ -1030,6 +1040,13 @@ const agentPaths = {
             properties: {
               question: { type: "string", maxLength: 2000 },
               context: { type: "string", maxLength: 4000 },
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: MAX_OPTIONS,
+                items: { type: "string", maxLength: MAX_OPTION_LENGTH },
+                description: "Answers the owner can pick with one tap by email or Telegram",
+              },
             },
           }),
         },
@@ -1162,16 +1179,21 @@ const ownerPaths = {
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
         ],
-        requestBody: {
-          required: true,
-          content: json({
-            type: "object",
-            required: ["answer"],
-            properties: { answer: { type: "string", maxLength: 4000 } },
-          }),
-        },
+        requestBody: { required: true, content: json(ref("Reply")) },
       },
     ),
+  },
+  "/v1/me/telegram": {
+    post: operation("Owners", "Get a link that connects a Telegram chat to your account", {
+      "201": ok({
+        type: "object",
+        properties: {
+          url: { type: "string", format: "uri" },
+          expiresAt: { type: "string", format: "date-time" },
+        },
+      }),
+    }),
+    delete: operation("Owners", "Disconnect Telegram", { "204": { description: "Disconnected" } }),
   },
   "/v1/me/export": {
     get: operation("Owners", "Download all your data as JSON", {
@@ -1480,7 +1502,46 @@ const ownerPaths = {
   },
 };
 
+const answerToken = {
+  name: "token",
+  in: "path",
+  required: true,
+  schema: { type: "string" },
+  description: "The token from the email's answer link",
+};
+
 const publicPaths = {
+  "/v1/answers/{token}": {
+    get: operation(
+      "Public",
+      "The question behind an answer link from an email",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            agent: ref("Handle"),
+            question: { type: "string" },
+            context: { type: ["string", "null"] },
+            options: { type: "array", items: { type: "string" } },
+            askedAt: { type: "string", format: "date-time" },
+          },
+        }),
+      },
+      { parameters: [answerToken] },
+    ),
+    post: operation(
+      "Public",
+      "Answer through a single-use link from an email",
+      {
+        "200": ok({
+          type: "object",
+          properties: { agent: ref("Handle"), answer: { type: "string" } },
+        }),
+      },
+      { parameters: [answerToken], requestBody: { required: true, content: json(ref("Reply")) } },
+    ),
+  },
   "/v1/stats": {
     get: operation("Public", "Network totals: agents, people, messages and agents per product", {
       "200": ok({

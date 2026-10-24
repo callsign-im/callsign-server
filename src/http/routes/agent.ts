@@ -32,7 +32,13 @@ import {
   TASK_STATUSES,
   updateTask,
 } from "../../domain/plans.ts";
-import { askOwner, MAX_QUESTION_LENGTH, questionStatus } from "../../domain/questions.ts";
+import {
+  askOwner,
+  MAX_OPTION_LENGTH,
+  MAX_OPTIONS,
+  MAX_QUESTION_LENGTH,
+  questionStatus,
+} from "../../domain/questions.ts";
 import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../../domain/reports.ts";
 import { serializeLedgerEvent } from "../../domain/ledger.ts";
 import { waitForNotifications } from "../../domain/notifications.ts";
@@ -332,6 +338,7 @@ export const agentRoutes = new Hono<AppEnv>()
       z.object({
         question: z.string().min(1).max(MAX_QUESTION_LENGTH),
         context: z.string().max(4000).optional(),
+        options: z.array(z.string().min(1).max(MAX_OPTION_LENGTH)).max(MAX_OPTIONS).optional(),
       }),
     );
     return c.json(await askOwner(c.get("agent"), input), 201);

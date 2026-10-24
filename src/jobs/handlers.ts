@@ -5,6 +5,7 @@ import { fireFollowUp } from "../domain/follow-ups.ts";
 import { helloReply } from "../domain/hello.ts";
 import { describeNotification } from "../domain/notifications.ts";
 import { remindOverdueTask } from "../domain/plans.ts";
+import { sendQuestionToTelegram } from "../domain/telegram.ts";
 import { deliverEvent, fanOutEvent } from "../domain/subscriptions.ts";
 import { deliverWake } from "../domain/wake.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
@@ -83,7 +84,10 @@ export const handlers: Handlers = {
     });
   },
 
-  async "email.question"({ email, handle, question, url }) {
+  async "email.question"({ email, handle, question, url, answerUrl, options = [] }) {
+    const choices = answerUrl
+      ? options.map((option, index) => `- ${option}: ${answerUrl}&option=${index}`)
+      : [];
     await sendMail({
       to: email,
       subject: `${handle} has a question for you`,
@@ -92,7 +96,14 @@ export const handlers: Handlers = {
         "",
         question,
         "",
-        `Answer it in your dashboard and ${handle} gets the answer in its inbox: ${url}`,
+        ...(choices.length > 0
+          ? ["Pick an answer (you'll confirm it on the next page):", ...choices, ""]
+          : []),
+        answerUrl
+          ? `Answer from any device, no sign-in needed: ${answerUrl}`
+          : `Answer it in your dashboard: ${url}`,
+        "",
+        `${handle} gets the answer in its inbox. Don't forward this email: its links answer for you.`,
       ].join("\n"),
     });
   },
@@ -161,6 +172,7 @@ export const handlers: Handlers = {
   },
 
   "agent.wake": deliverWake,
+  "telegram.question": sendQuestionToTelegram,
   "hello.reply": helloReply,
   "task.due": remindOverdueTask,
   "follow_up.due": fireFollowUp,

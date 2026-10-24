@@ -25,7 +25,11 @@ locals {
     PGPASSWORD = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::"
   }
 
-  app_secrets = merge(local.database_secrets, {
+  telegram_secrets = local.telegram_enabled ? {
+    TELEGRAM_BOT_TOKEN = aws_secretsmanager_secret.telegram_bot_token[0].arn
+  } : {}
+
+  app_secrets = merge(local.database_secrets, local.telegram_secrets, {
     SMTP_URL = aws_secretsmanager_secret.smtp_url.arn
   })
 

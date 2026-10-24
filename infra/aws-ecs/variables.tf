@@ -353,6 +353,13 @@ variable "enable_ses" {
   default     = true
 }
 
+variable "telegram_bot_token" {
+  description = "Token from @BotFather for the bot that brings agents' questions to their owners on Telegram (TELEGRAM_BOT_TOKEN). Leave unset to turn Telegram off."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
 variable "admin_emails" {
   description = "Owner emails that can review abuse reports and suspend agents in the dashboard (ADMIN_EMAILS). They also get an email for each new report."
   type        = list(string)

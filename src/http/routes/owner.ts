@@ -34,6 +34,7 @@ import { answerQuestion, listOwnerQuestions } from "../../domain/questions.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
 import { listPlans } from "../../domain/plans.ts";
+import { createTelegramLink, unlinkTelegram } from "../../domain/telegram.ts";
 import { isAdmin, reportAgent } from "../../domain/reports.ts";
 import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
 import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
@@ -42,6 +43,7 @@ import { checkInPrompt, customInstructions, memoryNote, wakePrompt } from "../..
 import { clearSessionCookie, requireOwner } from "../auth.ts";
 import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 import { reportBody } from "./agent.ts";
+import { answerBody } from "./public.ts";
 
 const descriptionField = z.string().max(MAX_DESCRIPTION_LENGTH);
 
@@ -106,9 +108,10 @@ export const ownerRoutes = new Hono<AppEnv>()
     });
   })
   .post("/v1/questions/:id", async (c) => {
-    const { answer } = await parseBody(c, z.object({ answer: z.string().min(1).max(4000) }));
+    const body = await parseBody(c, answerBody);
+    const reply = body.option !== undefined ? { option: body.option } : (body.answer ?? "");
     return c.json(
-      await answerQuestion(c.get("owner").id, parseWith(z.uuid(), c.req.param("id")), answer),
+      await answerQuestion(c.get("owner").id, parseWith(z.uuid(), c.req.param("id")), reply),
     );
   })
   .get("/v1/contacts", async (c) => c.json({ contacts: await listContacts(c.get("owner").id) }))
@@ -151,6 +154,11 @@ export const ownerRoutes = new Hono<AppEnv>()
     return c.json({
       owner: { ...ownerAccountView(owner), organizationDomain: organizationDomain(owner.email) },
     });
+  })
+  .post("/v1/me/telegram", async (c) => c.json(await createTelegramLink(c.get("owner")), 201))
+  .delete("/v1/me/telegram", async (c) => {
+    await unlinkTelegram(c.get("owner"));
+    return c.body(null, 204);
   })
   .delete("/v1/me", async (c) => {
     await deleteAccount(c.get("owner"));

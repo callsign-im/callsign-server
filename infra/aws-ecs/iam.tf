@@ -64,10 +64,10 @@ data "aws_iam_policy_document" "execution" {
   statement {
     sid     = "Secrets"
     actions = ["secretsmanager:GetSecretValue"]
-    resources = [
+    resources = concat([
       aws_db_instance.main.master_user_secret[0].secret_arn,
       aws_secretsmanager_secret.smtp_url.arn,
-    ]
+    ], aws_secretsmanager_secret.telegram_bot_token[*].arn)
   }
 }
 

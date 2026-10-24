@@ -17,6 +17,11 @@ const schema = z.object({
   ENCRYPTION_KEY: z.base64().optional(),
   ALLOW_PRIVATE_WEBHOOKS: z.stringbool().default(false),
   SUPPORT_EMAIL: z.email().optional(),
+  TELEGRAM_BOT_TOKEN: z
+    .string()
+    .optional()
+    .transform((token) => token || undefined),
+  TELEGRAM_API_URL: z.url().default("https://api.telegram.org"),
   ADMIN_EMAILS: z
     .string()
     .default("")
