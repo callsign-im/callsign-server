@@ -10,6 +10,19 @@ import { findAgents, listContacts, saveContact } from "../../domain/contacts.ts"
 import { AppError } from "../../domain/errors.ts";
 import { MAX_ATTACHMENTS, readFile, uploadFile } from "../../domain/files.ts";
 import {
+  AGENT_EVENT_KINDS,
+  endLiveSession,
+  getLiveSession,
+  liveSessionSteers,
+  listLiveSessions,
+  MAX_SESSION_BATCH,
+  MAX_SESSION_TEXT,
+  MAX_SESSION_TITLE,
+  recordLiveSessionEvents,
+  startLiveSession,
+  takeOverLiveSession,
+} from "../../domain/live-sessions.ts";
+import {
   createGroup,
   inviteToGroup,
   leaveGroup,
@@ -164,6 +177,30 @@ const handoffBody = z.object({
   plan: z.uuid().optional(),
 });
 
+const sessionBody = z.object({
+  title: z.string().min(1).max(MAX_SESSION_TITLE),
+  group: z.string().max(64).optional(),
+});
+
+const sessionEventsBody = z.object({
+  events: z
+    .array(
+      z.object({
+        kind: z.enum(AGENT_EVENT_KINDS).default("step"),
+        text: z.string().min(1).max(MAX_SESSION_TEXT),
+      }),
+    )
+    .min(1)
+    .max(MAX_SESSION_BATCH),
+});
+
+const sessionEndBody = z.object({
+  summary: z.string().min(1).max(MAX_SESSION_TEXT),
+  next: z.string().max(MAX_SESSION_TEXT).optional(),
+});
+
+const sessionQuery = z.object({ after: z.coerce.number().int().min(0).optional() });
+
 const followUpBody = z.object({
   in: z.string().max(20).optional(),
   at: z.string().max(40).optional(),
@@ -241,6 +278,51 @@ export const agentRoutes = new Hono<AppEnv>()
   .get("/v1/agent/handoffs/latest", async (c) =>
     c.json({ handoff: await latestHandoff(c.get("agent")) }),
   )
+  .get("/v1/agent/sessions", async (c) =>
+    c.json({ sessions: await listLiveSessions(c.get("agent")) }),
+  )
+  .post("/v1/agent/sessions", async (c) => {
+    const session = await startLiveSession(
+      c.get("agent"),
+      await parseBody(c, sessionBody),
+      c.get("client"),
+    );
+    return c.json({ session }, 201);
+  })
+  .get("/v1/agent/sessions/:id", async (c) => {
+    const { after } = parseWith(sessionQuery, c.req.query());
+    return c.json({
+      session: await getLiveSession(c.get("agent"), parseWith(z.uuid(), c.req.param("id")), {
+        after,
+      }),
+    });
+  })
+  .post("/v1/agent/sessions/:id/events", async (c) => {
+    const { events } = await parseBody(c, sessionEventsBody);
+    return c.json(
+      await recordLiveSessionEvents(c.get("agent"), parseWith(z.uuid(), c.req.param("id")), events),
+    );
+  })
+  .get("/v1/agent/sessions/:id/steers", async (c) =>
+    c.json({
+      steers: await liveSessionSteers(c.get("agent"), parseWith(z.uuid(), c.req.param("id"))),
+    }),
+  )
+  .post("/v1/agent/sessions/:id/end", async (c) => {
+    const session = await endLiveSession(
+      c.get("agent"),
+      parseWith(z.uuid(), c.req.param("id")),
+      await parseBody(c, sessionEndBody),
+    );
+    return c.json({ session });
+  })
+  .post("/v1/agent/sessions/:id/take-over", async (c) => {
+    const session = await takeOverLiveSession(
+      c.get("agent"),
+      parseWith(z.uuid(), c.req.param("id")),
+    );
+    return c.json({ session });
+  })
   .post("/v1/agent/follow-ups", async (c) => {
     const followUp = await scheduleFollowUp(c.get("agent"), await parseBody(c, followUpBody));
     return c.json({ followUp }, 201);

@@ -5,7 +5,7 @@ import type { DataKey } from "../lib/encryption.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { formatHandle } from "./handles.ts";
 import { ownerKey } from "./keys.ts";
-import { appendLedgerEvent, type RecordedEvent } from "./ledger.ts";
+import { appendLedgerEvent, type Actor, type RecordedEvent } from "./ledger.ts";
 import { notify } from "./notifications.ts";
 
 export type NoticeKind =
@@ -15,13 +15,16 @@ export type NoticeKind =
   | "task.updated"
   | "task.overdue"
   | "follow_up"
-  | "handoff";
+  | "handoff"
+  | "session.steer"
+  | "session.taken_over";
 
 export type NoticeView = {
   id: string;
   kind: NoticeKind;
   from: string | null;
   planId: string | null;
+  sessionId: string | null;
   task: string | null;
   text: string;
   at: string;
@@ -34,8 +37,11 @@ export type NoticeInput = {
   actor: Agent | null;
   conversationId: string | null;
   planId: string | null;
+  liveSessionId?: string | null;
   taskKey: string | null;
   text: string;
+  // Who the ledger credits; inferred from actor when omitted.
+  actorKind?: Actor;
 };
 
 // A notice is an inbox item that isn't a message: plan updates and reminders. It lands in the
@@ -54,19 +60,21 @@ export async function createNotice(
     actorId: input.actor?.id ?? null,
     conversationId: input.conversationId,
     planId: input.planId,
+    liveSessionId: input.liveSessionId ?? null,
     taskKey: input.taskKey,
     text: key.seal(input.text, textContext(id)),
   });
   await notify(tx, recipient, { kind: "notice", agentId: recipient.id, noticeId: id });
   return appendLedgerEvent(tx, recipient, {
     type: "notice.received",
-    actor: input.actor && input.actor.id !== recipient.id ? "peer" : "agent",
+    actor: input.actorKind ?? (input.actor && input.actor.id !== recipient.id ? "peer" : "agent"),
     conversationId: input.conversationId,
     data: {
       noticeId: id,
       kind: input.kind,
       ...(input.actor && { from: formatHandle(input.actor.handle) }),
       ...(input.planId && { planId: input.planId }),
+      ...(input.liveSessionId && { sessionId: input.liveSessionId }),
       ...(input.taskKey && { task: input.taskKey }),
     },
   });
@@ -88,6 +96,7 @@ async function views(agent: Agent, rows: Notice[]): Promise<NoticeView[]> {
     kind: row.kind as NoticeKind,
     from: row.actorId ? (handles.get(row.actorId) ?? null) : null,
     planId: row.planId,
+    sessionId: row.liveSessionId,
     task: row.taskKey,
     text: key.open(row.text, textContext(row.id)) ?? "",
     at: row.createdAt.toISOString(),
@@ -111,6 +120,24 @@ export async function noticesByIds(agent: Agent, ids: string[]): Promise<NoticeV
     .update(notices)
     .set({ deliveredAt: new Date() })
     .where(and(eq(notices.agentId, agent.id), inArray(notices.id, ids)))
+    .returning();
+  rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return views(agent, rows);
+}
+
+// Corrections from people watching a live session, delivered to the driver once.
+export async function takeSessionSteers(agent: Agent, sessionId: string): Promise<NoticeView[]> {
+  const rows = await db
+    .update(notices)
+    .set({ deliveredAt: new Date() })
+    .where(
+      and(
+        eq(notices.agentId, agent.id),
+        eq(notices.liveSessionId, sessionId),
+        eq(notices.kind, "session.steer"),
+        isNull(notices.deliveredAt),
+      ),
+    )
     .returning();
   rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   return views(agent, rows);

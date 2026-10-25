@@ -113,6 +113,13 @@
       "when": 1792875820406,
       "tag": "0015_email_bridge",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792950083025,
+      "tag": "0016_live_sessions",
+      "breakpoints": true
     }
   ]
 }

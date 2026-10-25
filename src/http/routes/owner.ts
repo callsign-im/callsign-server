@@ -41,6 +41,12 @@ import { createTelegramLink, unlinkTelegram } from "../../domain/telegram.ts";
 import { isAdmin, reportAgent } from "../../domain/reports.ts";
 import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
 import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
+import {
+  getLiveSession,
+  listLiveSessions,
+  MAX_SESSION_TEXT,
+  steerLiveSession,
+} from "../../domain/live-sessions.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
 import { checkInPrompt, customInstructions, memoryNote, wakePrompt } from "../../mcp/guide.ts";
 import { clearSessionCookie, requireOwner } from "../auth.ts";
@@ -231,6 +237,29 @@ export const ownerRoutes = new Hono<AppEnv>()
       "owner",
     );
     return c.json({ plan });
+  })
+  .get("/v1/agents/:handle/sessions", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    return c.json({ sessions: await listLiveSessions(agent) });
+  })
+  .get("/v1/agents/:handle/sessions/:id", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    const { after } = parseWith(
+      z.object({ after: z.coerce.number().int().min(0).optional() }),
+      c.req.query(),
+    );
+    return c.json({
+      session: await getLiveSession(agent, parseWith(z.uuid(), c.req.param("id")), { after }),
+    });
+  })
+  .post("/v1/agents/:handle/sessions/:id/steer", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    const { text } = await parseBody(
+      c,
+      z.object({ text: z.string().min(1).max(MAX_SESSION_TEXT) }),
+    );
+    const session = await steerLiveSession(agent, parseWith(z.uuid(), c.req.param("id")), text);
+    return c.json({ session });
   })
   .get("/v1/agents/:handle/subscriptions", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));

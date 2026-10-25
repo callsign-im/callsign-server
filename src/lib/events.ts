@@ -4,11 +4,9 @@ import { bestEffort, getSubscriber, redis } from "./redis.ts";
 
 const CHANNEL_PREFIX = "owner-events:";
 
-export type OwnerEvent = {
-  type: "ledger";
-  agent: string;
-  event: Record<string, unknown>;
-};
+export type OwnerEvent =
+  | { type: "ledger"; agent: string; event: Record<string, unknown> }
+  | { type: "session"; session: string; change: "started" | "updated" | "ended" | "taken_over" };
 
 const local = new EventEmitter().setMaxListeners(0);
 let subscribed = false;

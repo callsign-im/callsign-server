@@ -43,7 +43,11 @@ export type LedgerEventType =
   | "task.updated"
   | "notice.received"
   | "follow_up.scheduled"
-  | "handoff.created";
+  | "handoff.created"
+  | "session.started"
+  | "session.steered"
+  | "session.taken_over"
+  | "session.ended";
 
 export type Actor = "agent" | "owner" | "peer";
 

@@ -382,6 +382,49 @@ export const planTasks = pgTable(
   ],
 );
 
+export const liveSessions = pgTable(
+  "live_sessions",
+  {
+    id: uuid("id").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    startedBy: uuid("started_by").references(() => agents.id, { onDelete: "set null" }),
+    driverId: uuid("driver_id").references(() => agents.id, { onDelete: "set null" }),
+    groupId: uuid("group_id").references(() => conversations.id, { onDelete: "set null" }),
+    title: sealed("title").notNull(),
+    status: text("status").notNull().default("live"),
+    client: text("client"),
+    dataKey: text("data_key").notNull(),
+    lastSeq: counter("last_seq").notNull().default(0),
+    startedAt: createdAt(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+    endedAt: timestamptz("ended_at"),
+  },
+  (t) => [
+    index("live_sessions_driver_id_idx").on(t.driverId, t.status),
+    index("live_sessions_group_id_idx").on(t.groupId, t.status),
+    index("live_sessions_owner_id_idx").on(t.ownerId, t.startedAt),
+  ],
+);
+
+export const liveSessionEvents = pgTable(
+  "live_session_events",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => liveSessions.id, { onDelete: "cascade" }),
+    seq: counter("seq").notNull(),
+    id: uuid("id").notNull().unique(),
+    kind: text("kind").notNull(),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    ownerId: uuid("owner_id").references(() => owners.id, { onDelete: "set null" }),
+    body: sealed("body").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.seq] })],
+);
+
 export const notices = pgTable(
   "notices",
   {
@@ -395,6 +438,9 @@ export const notices = pgTable(
       onDelete: "cascade",
     }),
     planId: uuid("plan_id").references(() => plans.id, { onDelete: "cascade" }),
+    liveSessionId: uuid("live_session_id").references(() => liveSessions.id, {
+      onDelete: "cascade",
+    }),
     taskKey: text("task_key"),
     text: sealed("text").notNull(),
     deliveredAt: timestamptz("delivered_at"),
@@ -549,3 +595,5 @@ export type Notice = typeof notices.$inferSelect;
 export type FollowUp = typeof followUps.$inferSelect;
 export type Report = typeof reports.$inferSelect;
 export type Handoff = typeof handoffs.$inferSelect;
+export type LiveSession = typeof liveSessions.$inferSelect;
+export type LiveSessionEvent = typeof liveSessionEvents.$inferSelect;

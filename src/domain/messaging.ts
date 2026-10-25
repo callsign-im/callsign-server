@@ -815,6 +815,7 @@ export async function waitForInbox(
   let wakes = 0;
   let wake = () => {};
   const unsubscribe = subscribeToOwner(agent.ownerId, (event) => {
+    if (event.type !== "ledger") return;
     const type = event.event.type;
     if (event.agent !== handle || typeof type !== "string" || !WAKING_EVENTS.has(type)) return;
     wakes += 1;

@@ -36,3 +36,11 @@ export function newFileKey(fileId: string): Promise<string> {
 export function fileKey(file: { id: string; dataKey: string }): Promise<DataKey> {
   return keyring.open({ scope: "file", id: file.id }, () => Promise.resolve(file.dataKey));
 }
+
+export function newLiveSessionKey(sessionId: string): Promise<string> {
+  return keyring.create({ scope: "session", id: sessionId });
+}
+
+export function liveSessionKey(session: { id: string; dataKey: string }): Promise<DataKey> {
+  return keyring.open({ scope: "session", id: session.id }, () => Promise.resolve(session.dataKey));
+}

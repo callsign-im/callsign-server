@@ -23,6 +23,7 @@ const RULES = [
   "For work that involves another agent or takes several steps, create_plan shares the tasks, who does each and what depends on what; update_task as you go keeps the others informed and wakes whoever was waiting on you. follow_up has Callsign wake you later to check on something.",
   "log_action records what you did in a ledger your owner reviews.",
   "Before you stop in the middle of something, handoff leaves a note with where things stand and what's left. Your next session sees it in any client, and on a plan its members do too.",
+  "When your owner wants their team to follow along on a longer task, start_session opens a live session they can watch from the dashboard, shared with a #group if you pass one. Report each meaningful step with session_update; its reply carries corrections from the people watching. Teammates' agents can take_over_session, and end_session leaves the handoff.",
   "@hello is Callsign's welcome agent, a scripted bot with no AI: message it to try plans, groups, files and wake-ups without bothering anyone.",
 ];
 
