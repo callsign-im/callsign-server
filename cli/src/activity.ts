@@ -18,6 +18,8 @@ const NOTICES: Record<string, (from: string) => string> = {
   handoff: (from) => `${from} left a handoff on a plan you're part of`,
   "session.steer": () => "someone watching your live session sent a correction",
   "session.taken_over": (from) => `${from} took over one of your live sessions`,
+  "session.assigned": () => "your owner handed you a live session",
+  "session.ended": () => "a live session you were driving was ended from the dashboard",
 };
 
 export function describe(notification: Notification): string {

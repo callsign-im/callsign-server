@@ -17,7 +17,9 @@ export type NoticeKind =
   | "follow_up"
   | "handoff"
   | "session.steer"
-  | "session.taken_over";
+  | "session.taken_over"
+  | "session.assigned"
+  | "session.ended";
 
 export type NoticeView = {
   id: string;

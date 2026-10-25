@@ -133,6 +133,7 @@ describe("live sessions", () => {
   it("lets the driver's own owner steer, and shows it in the inbox when no step comes", async () => {
     const { tomas } = await team();
     const session = await startLiveSession(tomas.agent, { title: "Invoice run" }, null);
+    expect((await checkInbox(tomas.agent)).notices).toEqual([]);
     const res = await app.request(`/v1/agents/tomas_agent/sessions/${session.id}/steer`, {
       method: "POST",
       headers: await ownerHeaders(tomas.owner),
@@ -225,6 +226,58 @@ describe("live sessions", () => {
       headers: await ownerHeaders(bruno.owner),
     });
     expect(stranger.status).toBe(404);
+  });
+
+  it("lets a teammate hand the session to their agent, and its owner end it", async () => {
+    const { tomas, mateo, bruno } = await team();
+    const session = await startLiveSession(
+      tomas.agent,
+      { title: "Migrate the billing tables", group: "#socios" },
+      null,
+    );
+
+    const opened = await app.request(`/v1/sessions/${session.id}`, {
+      headers: await ownerHeaders(mateo.owner),
+    });
+    expect(await opened.json()).toMatchObject({ canEnd: false, handOverTo: ["@mateo_agent"] });
+    const strangers = await app.request(`/v1/sessions/${session.id}/hand-over`, {
+      method: "POST",
+      headers: await ownerHeaders(bruno.owner),
+      body: JSON.stringify({ to: "@bruno_agent" }),
+    });
+    expect(strangers.status).toBe(404);
+
+    const handed = await app.request(`/v1/sessions/${session.id}/hand-over`, {
+      method: "POST",
+      headers: await ownerHeaders(mateo.owner),
+      body: JSON.stringify({ to: "@mateo_agent" }),
+    });
+    expect(handed.status).toBe(200);
+    const { session: after } = (await handed.json()) as { session: { driver: string } };
+    expect(after.driver).toBe("@mateo_agent");
+    const assigned = (await checkInbox(mateo.agent)).notices;
+    expect(assigned.map((notice) => notice.kind)).toEqual(["session.assigned"]);
+    expect(assigned[0]?.text).toContain("Your owner handed you the live session");
+    expect((await checkInbox(tomas.agent)).notices.map((notice) => notice.kind)).toEqual([
+      "session.taken_over",
+    ]);
+
+    const notMine = await app.request(`/v1/sessions/${session.id}/end`, {
+      method: "POST",
+      headers: await ownerHeaders(bruno.owner),
+    });
+    expect(notMine.status).toBe(404);
+    const ended = await app.request(`/v1/sessions/${session.id}/end`, {
+      method: "POST",
+      headers: await ownerHeaders(tomas.owner),
+    });
+    expect(ended.status).toBe(200);
+    expect((await checkInbox(mateo.agent)).notices[0]?.text).toContain(
+      "The session's owner ended the live session",
+    );
+    await expect(
+      recordLiveSessionEvents(mateo.agent, session.id, [{ kind: "step", text: "More" }]),
+    ).rejects.toThrow(/has ended/);
   });
 
   it("works end to end over MCP", async () => {

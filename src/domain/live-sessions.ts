@@ -14,9 +14,10 @@ import type { DataKey } from "../lib/encryption.ts";
 import { publishToOwner } from "../lib/events.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
+import { bumpInbox } from "./conversations.ts";
 import { AppError } from "./errors.ts";
 import { formatGroupName, resolveGroup } from "./groups.ts";
-import { formatHandle } from "./handles.ts";
+import { formatHandle, normalizeHandle } from "./handles.ts";
 import { liveSessionKey, newLiveSessionKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast, type RecordedEvent } from "./ledger.ts";
 import { createNotice, takeSessionSteers, type NoticeView } from "./notices.ts";
@@ -453,22 +454,29 @@ async function mayTakeOver(agent: Agent, session: LiveSession): Promise<boolean>
   return session.groupId ? isActiveMember(session.groupId, agent.id) : false;
 }
 
+// The agent becomes the driver, either by calling take_over_session itself or because a person
+// handed it the session from the dashboard; then it's told so and woken up.
 export async function takeOverLiveSession(
   agent: Agent,
   sessionId: string,
+  options: { handedOverBy?: string } = {},
 ): Promise<LiveSessionView> {
   const before = await loadSession(sessionId);
   if (before.status !== "live") {
     throw new AppError("conflict", "This session has ended, so there is nothing to take over.");
   }
   if (before.driverId === agent.id) {
-    throw new AppError("conflict", "You're already driving this session.");
+    throw new AppError(
+      "conflict",
+      `${formatHandle(agent.handle)} is already driving this session.`,
+    );
   }
   if (!(await mayTakeOver(agent, before))) {
     throw new AppError("not_found", "There is no such live session.");
   }
   const handle = formatHandle(agent.handle);
-  const { session, recorded } = await db.transaction(async (tx) => {
+  const byOwner = options.handedOverBy !== undefined;
+  const { session, recorded, told } = await db.transaction(async (tx) => {
     const session = await lockSession(tx, sessionId);
     if (session.status !== "live" || session.driverId === agent.id) {
       throw new AppError("conflict", "The session changed meanwhile. Look at it again.");
@@ -476,13 +484,13 @@ export async function takeOverLiveSession(
     const previous = session.driverId ? await agentById(session.driverId) : null;
     const key = await liveSessionKey(session);
     const title = key.open(session.title, titleContext(session.id)) ?? "";
+    const from = previous ? formatHandle(previous.handle) : null;
     const lastSeq = await insertEvents(tx, session, key, [
       {
         kind: "status",
         agentId: agent.id,
-        text: previous
-          ? `${handle} took over from ${formatHandle(previous.handle)}.`
-          : `${handle} took over the session.`,
+        ...(byOwner && { ownerId: options.handedOverBy }),
+        text: `${handle} took over${from ? ` from ${from}` : " the session"}${byOwner ? ", handed over from the dashboard" : ""}.`,
       },
     ]);
     await tx
@@ -492,15 +500,25 @@ export async function takeOverLiveSession(
     const recorded: RecordedEvent[] = [
       await appendLedgerEvent(tx, agent, {
         type: "session.taken_over",
-        actor: "agent",
+        actor: byOwner ? "owner" : "agent",
         conversationId: session.groupId,
-        data: {
-          sessionId: session.id,
-          title,
-          ...(previous && { from: formatHandle(previous.handle) }),
-        },
+        data: { sessionId: session.id, title, ...(from && { from }) },
       }),
     ];
+    if (byOwner) {
+      recorded.push(
+        await createNotice(tx, agent, {
+          kind: "session.assigned",
+          actor: null,
+          actorKind: "owner",
+          conversationId: session.groupId,
+          planId: null,
+          liveSessionId: session.id,
+          taskKey: null,
+          text: `Your owner handed you the live session "${title}" (session ${session.id})${from ? `, which ${from} was driving` : ""}. Read it with get_session, pick up from the latest handoff or step, report with session_update and finish with end_session.`,
+        }),
+      );
+    }
     if (previous) {
       recorded.push(
         await createNotice(tx, previous, {
@@ -514,10 +532,97 @@ export async function takeOverLiveSession(
         }),
       );
     }
-    return { session: { ...session, lastSeq, driverId: agent.id }, recorded };
+    const told = [...(byOwner ? [agent.id] : []), ...(previous ? [previous.id] : [])];
+    return { session: { ...session, lastSeq, driverId: agent.id }, recorded, told };
   });
+  await Promise.all(told.map(bumpInbox));
   await broadcast(recorded);
   await announce(session, "taken_over");
+  return sessionView(await loadSession(session.id));
+}
+
+// What an owner may do with a session from the dashboard: end it if it's theirs or their agent
+// drives it, and hand it to any of their agents that can take it over.
+export async function sessionControls(
+  ownerId: string,
+  sessionId: string,
+): Promise<{ canEnd: boolean; handOverTo: string[] }> {
+  const session = await loadSession(sessionId);
+  if (session.status !== "live") return { canEnd: false, handOverTo: [] };
+  const driver = await agentById(session.driverId);
+  const mine = await ownedAgents(ownerId);
+  const handOverTo: string[] = [];
+  for (const agent of mine) {
+    if (agent.id !== session.driverId && (await mayTakeOver(agent, session))) {
+      handOverTo.push(formatHandle(agent.handle));
+    }
+  }
+  return { canEnd: session.ownerId === ownerId || driver?.ownerId === ownerId, handOverTo };
+}
+
+export async function handOverLiveSession(
+  ownerId: string,
+  sessionId: string,
+  rawHandle: string,
+): Promise<LiveSessionView> {
+  const handle = normalizeHandle(rawHandle);
+  const agent = (await ownedAgents(ownerId)).find((candidate) => candidate.handle === handle);
+  if (!agent) throw new AppError("not_found", `You don't own ${rawHandle}.`);
+  return takeOverLiveSession(agent, sessionId, { handedOverBy: ownerId });
+}
+
+export async function endLiveSessionFromDashboard(
+  ownerId: string,
+  sessionId: string,
+): Promise<LiveSessionView> {
+  const { canEnd } = await sessionControls(ownerId, sessionId);
+  if (!canEnd) {
+    throw new AppError(
+      "forbidden",
+      "Only the session's owner, or the owner of the agent driving it, can end it.",
+    );
+  }
+  const { session, recorded, told } = await db.transaction(async (tx) => {
+    const session = await lockSession(tx, sessionId);
+    if (session.status !== "live") throw new AppError("conflict", "This session already ended.");
+    const driver = await agentById(session.driverId);
+    const key = await liveSessionKey(session);
+    const title = key.open(session.title, titleContext(session.id)) ?? "";
+    const lastSeq = await insertEvents(tx, session, key, [
+      { kind: "status", ownerId, text: "Ended from the dashboard." },
+    ]);
+    const endedAt = new Date();
+    await tx
+      .update(liveSessions)
+      .set({ status: "ended", endedAt, updatedAt: endedAt })
+      .where(eq(liveSessions.id, session.id));
+    const recorded: RecordedEvent[] = [];
+    if (driver) {
+      const ownOwner = driver.ownerId === ownerId;
+      recorded.push(
+        await appendLedgerEvent(tx, driver, {
+          type: "session.ended",
+          actor: ownOwner ? "owner" : "peer",
+          conversationId: session.groupId,
+          data: { sessionId: session.id, summary: "Ended from the dashboard." },
+        }),
+        await createNotice(tx, driver, {
+          kind: "session.ended",
+          actor: null,
+          actorKind: ownOwner ? "owner" : "peer",
+          conversationId: session.groupId,
+          planId: null,
+          liveSessionId: session.id,
+          taskKey: null,
+          text: `${ownOwner ? "Your owner" : "The session's owner"} ended the live session "${title}" (session ${session.id}) from the dashboard. Stop working on it.`,
+        }),
+      );
+    }
+    return { session: { ...session, lastSeq, status: "ended" }, recorded, told: driver?.id };
+  });
+  if (told) await bumpInbox(told);
+  await broadcast(recorded);
+  await announce(session, "ended");
   return sessionView(await loadSession(session.id));
 }
 
@@ -534,7 +639,7 @@ export async function steerLiveSession(
     throw new AppError("conflict", "This session has ended, so there's no one to correct.");
   }
   await rateLimit(`live-session-steers:${through.ownerId}`, 60, 3600);
-  const { session, recorded } = await db.transaction(async (tx) => {
+  const { session, recorded, told } = await db.transaction(async (tx) => {
     const session = await lockSession(tx, sessionId);
     const driver = await agentById(session.driverId);
     if (session.status !== "live" || !driver) {
@@ -573,8 +678,9 @@ export async function steerLiveSession(
         data: { sessionId: session.id, title, driver: formatHandle(driver.handle), text },
       }),
     ];
-    return { session: { ...session, lastSeq }, recorded };
+    return { session: { ...session, lastSeq }, recorded, told: driver.id };
   });
+  await bumpInbox(told);
   await broadcast(recorded);
   await announce(session, "updated");
   return sessionView(await loadSession(session.id));

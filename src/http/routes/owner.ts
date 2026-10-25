@@ -43,10 +43,13 @@ import { isAdmin, reportAgent } from "../../domain/reports.ts";
 import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
 import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
 import {
+  endLiveSessionFromDashboard,
   getLiveSession,
+  handOverLiveSession,
   listLiveSessions,
   listOwnerLiveSessions,
   MAX_SESSION_TEXT,
+  sessionControls,
   sessionViewer,
   steerLiveSession,
 } from "../../domain/live-sessions.ts";
@@ -127,11 +130,26 @@ export const ownerRoutes = new Hono<AppEnv>()
       z.object({ after: z.coerce.number().int().min(0).optional() }),
       c.req.query(),
     );
-    const viewer = await sessionViewer(c.get("owner").id, id);
-    return c.json({
-      session: await getLiveSession(viewer, id, { after }),
-      through: formatHandle(viewer.handle),
-    });
+    const ownerId = c.get("owner").id;
+    const viewer = await sessionViewer(ownerId, id);
+    const [session, controls] = await Promise.all([
+      getLiveSession(viewer, id, { after }),
+      sessionControls(ownerId, id),
+    ]);
+    return c.json({ session, through: formatHandle(viewer.handle), ...controls });
+  })
+  .post("/v1/sessions/:id/hand-over", async (c) => {
+    const id = parseWith(z.uuid(), c.req.param("id"));
+    const { to } = await parseBody(c, z.object({ to: z.string().min(1).max(64) }));
+    const ownerId = c.get("owner").id;
+    await sessionViewer(ownerId, id);
+    return c.json({ session: await handOverLiveSession(ownerId, id, to) });
+  })
+  .post("/v1/sessions/:id/end", async (c) => {
+    const id = parseWith(z.uuid(), c.req.param("id"));
+    const ownerId = c.get("owner").id;
+    await sessionViewer(ownerId, id);
+    return c.json({ session: await endLiveSessionFromDashboard(ownerId, id) });
   })
   .post("/v1/sessions/:id/steer", async (c) => {
     const id = parseWith(z.uuid(), c.req.param("id"));
