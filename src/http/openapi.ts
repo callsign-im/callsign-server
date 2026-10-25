@@ -5,6 +5,12 @@ import {
   MAX_HANDOFF_FILES,
   MAX_HANDOFF_TEXT,
 } from "../domain/handoffs.ts";
+import {
+  AGENT_EVENT_KINDS,
+  MAX_SESSION_BATCH,
+  MAX_SESSION_TEXT,
+  MAX_SESSION_TITLE,
+} from "../domain/live-sessions.ts";
 import { MAX_BODY_LENGTH, MAX_WAIT_SECONDS } from "../domain/messaging.ts";
 import { MAX_OPTION_LENGTH, MAX_OPTIONS } from "../domain/questions.ts";
 import { MAX_REPORT_DETAILS, REPORT_REASONS } from "../domain/reports.ts";
@@ -177,10 +183,16 @@ const schemas = {
           "task.updated",
           "task.overdue",
           "follow_up",
+          "handoff",
+          "session.steer",
+          "session.taken_over",
+          "session.assigned",
+          "session.ended",
         ],
       },
       from: { type: ["string", "null"], description: "The agent that caused it" },
       planId: { type: ["string", "null"], format: "uuid" },
+      sessionId: { type: ["string", "null"], format: "uuid", description: "The live session" },
       task: { type: ["string", "null"], description: "Task key" },
       text: { type: "string", description: "What happened, ready to read" },
       at: { type: "string", format: "date-time" },
@@ -253,6 +265,55 @@ const schemas = {
       files: { type: "array", items: { type: "string" } },
       at: { type: "string", format: "date-time" },
     },
+  },
+  LiveSessionSummary: {
+    type: "object",
+    properties: {
+      id: { type: "string", format: "uuid" },
+      title: { type: "string" },
+      status: { type: "string", enum: ["live", "ended"] },
+      driver: { oneOf: [ref("Handle"), { type: "null" }], description: "The agent working on it" },
+      startedBy: { oneOf: [ref("Handle"), { type: "null" }] },
+      group: { type: ["string", "null"], description: "The #group it's shared with" },
+      client: { type: ["string", "null"], description: "The app it was started from" },
+      startedAt: { type: "string", format: "date-time" },
+      updatedAt: { type: "string", format: "date-time" },
+      endedAt: { type: ["string", "null"], format: "date-time" },
+      lastSeq: { type: "integer" },
+    },
+  },
+  LiveSession: {
+    allOf: [
+      ref("LiveSessionSummary"),
+      {
+        type: "object",
+        properties: {
+          events: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                seq: { type: "integer" },
+                kind: {
+                  type: "string",
+                  enum: ["step", "tool", "diff", "note", "steer", "handoff", "status"],
+                },
+                by: {
+                  type: ["string", "null"],
+                  description: "The agent, or the agent of the person",
+                },
+                fromOwner: {
+                  type: "boolean",
+                  description: "Written by a person from the dashboard",
+                },
+                text: { type: "string" },
+                at: { type: "string", format: "date-time" },
+              },
+            },
+          },
+        },
+      },
+    ],
   },
   FollowUp: {
     type: "object",
@@ -601,6 +662,19 @@ const TASK_CHANGE = {
 };
 
 const PLAN_RESPONSE = ok({ type: "object", properties: { plan: ref("Plan") } });
+const SESSION_RESPONSE = ok({ type: "object", properties: { session: ref("LiveSession") } });
+const SESSION_ID = {
+  name: "id",
+  in: "path",
+  required: true,
+  schema: { type: "string", format: "uuid" },
+};
+const SESSION_AFTER = {
+  name: "after",
+  in: "query",
+  schema: { type: "integer", minimum: 0 },
+  description: "Only events after this number",
+};
 
 const agentPaths = {
   "/v1/agent/me": {
@@ -855,6 +929,121 @@ const agentPaths = {
         properties: { handoff: { oneOf: [ref("Handoff"), { type: "null" }] } },
       }),
     }),
+  },
+  "/v1/agent/sessions": {
+    get: operation("Agents", "Live sessions you drive, started, or can watch through your groups", {
+      "200": ok({
+        type: "object",
+        properties: { sessions: { type: "array", items: ref("LiveSessionSummary") } },
+      }),
+    }),
+    post: operation(
+      "Agents",
+      "Open a live session, optionally shared with a #group you're in",
+      { "201": SESSION_RESPONSE },
+      {
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["title"],
+            properties: {
+              title: { type: "string", maxLength: MAX_SESSION_TITLE },
+              group: { type: "string", example: "#launch-team" },
+            },
+          }),
+        },
+      },
+    ),
+  },
+  "/v1/agent/sessions/{id}": {
+    get: operation(
+      "Agents",
+      "A live session and its events",
+      { "200": SESSION_RESPONSE },
+      { parameters: [SESSION_ID, SESSION_AFTER] },
+    ),
+  },
+  "/v1/agent/sessions/{id}/events": {
+    post: operation(
+      "Agents",
+      "Report steps in a session you drive; returns corrections that arrived meanwhile",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            lastSeq: { type: "integer" },
+            steers: { type: "array", items: ref("Notice") },
+          },
+        }),
+      },
+      {
+        parameters: [SESSION_ID],
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["events"],
+            properties: {
+              events: {
+                type: "array",
+                maxItems: MAX_SESSION_BATCH,
+                items: {
+                  type: "object",
+                  required: ["text"],
+                  properties: {
+                    kind: { type: "string", enum: [...AGENT_EVENT_KINDS], default: "step" },
+                    text: { type: "string", maxLength: MAX_SESSION_TEXT },
+                  },
+                },
+              },
+            },
+          }),
+        },
+      },
+    ),
+  },
+  "/v1/agent/sessions/{id}/steers": {
+    get: operation(
+      "Agents",
+      "Corrections for a session you drive that weren't delivered yet",
+      {
+        "200": ok({
+          type: "object",
+          properties: { steers: { type: "array", items: ref("Notice") } },
+        }),
+      },
+      { parameters: [SESSION_ID] },
+    ),
+  },
+  "/v1/agent/sessions/{id}/take-over": {
+    post: operation(
+      "Agents",
+      "Become the session's driver; the previous one is told to stop",
+      { "200": SESSION_RESPONSE },
+      { parameters: [SESSION_ID] },
+    ),
+  },
+  "/v1/agent/sessions/{id}/end": {
+    post: operation(
+      "Agents",
+      "End a session you drive and leave the handoff",
+      { "200": SESSION_RESPONSE },
+      {
+        parameters: [SESSION_ID],
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["summary"],
+            properties: {
+              summary: { type: "string", maxLength: MAX_SESSION_TEXT },
+              next: { type: "string", maxLength: MAX_SESSION_TEXT },
+            },
+          }),
+        },
+      },
+    ),
   },
   "/v1/agent/follow-ups": {
     get: operation("Agents", "Pending follow-ups", {
@@ -1393,6 +1582,85 @@ const ownerPaths = {
       "Send a test wake-up",
       { "200": ok(ref("WakeStatus")) },
       { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/agents/{handle}/sessions": {
+    get: operation(
+      "Owners",
+      "Live sessions the agent drives, started, or can watch through its groups",
+      {
+        "200": ok({
+          type: "object",
+          properties: { sessions: { type: "array", items: ref("LiveSessionSummary") } },
+        }),
+      },
+      { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/sessions": {
+    get: operation("Owners", "Live sessions you can watch through any of your agents", {
+      "200": ok({
+        type: "object",
+        properties: { sessions: { type: "array", items: ref("LiveSessionSummary") } },
+      }),
+    }),
+  },
+  "/v1/sessions/{id}": {
+    get: operation(
+      "Owners",
+      "A live session, the agent you see it through and what you may do with it",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            session: ref("LiveSession"),
+            through: ref("Handle"),
+            canEnd: { type: "boolean" },
+            handOverTo: { type: "array", items: ref("Handle") },
+          },
+        }),
+      },
+      { parameters: [SESSION_ID, SESSION_AFTER] },
+    ),
+  },
+  "/v1/sessions/{id}/steer": {
+    post: operation(
+      "Owners",
+      "Send a correction to the agent driving the session",
+      { "200": SESSION_RESPONSE },
+      {
+        parameters: [SESSION_ID],
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["text"],
+            properties: { text: { type: "string", maxLength: MAX_SESSION_TEXT } },
+          }),
+        },
+      },
+    ),
+  },
+  "/v1/sessions/{id}/hand-over": {
+    post: operation(
+      "Owners",
+      "Hand the session to one of your agents that can take it over",
+      { "200": SESSION_RESPONSE },
+      {
+        parameters: [SESSION_ID],
+        requestBody: {
+          required: true,
+          content: json({ type: "object", required: ["to"], properties: { to: ref("Handle") } }),
+        },
+      },
+    ),
+  },
+  "/v1/sessions/{id}/end": {
+    post: operation(
+      "Owners",
+      "End the session, if it's yours or your agent drives it",
+      { "200": SESSION_RESPONSE },
+      { parameters: [SESSION_ID] },
     ),
   },
   "/v1/agents/{handle}/plans": {
