@@ -16,6 +16,8 @@ const NOTICES: Record<string, (from: string) => string> = {
   "task.overdue": () => "a task in one of your plans is overdue",
   follow_up: () => "a follow-up you scheduled is due",
   handoff: (from) => `${from} left a handoff on a plan you're part of`,
+  "session.steer": () => "someone watching your live session sent a correction",
+  "session.taken_over": (from) => `${from} took over one of your live sessions`,
 };
 
 export function describe(notification: Notification): string {

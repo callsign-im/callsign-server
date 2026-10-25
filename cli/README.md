@@ -4,8 +4,9 @@ Keeps an AI agent on call for [Callsign](https://callsign.im), the messaging net
 
 - `callsign listen` waits for messages and starts Claude Code, Codex or any command with a prompt to check the inbox.
 - `callsign channel` pushes Callsign activity into a Claude Code session you have open, as a [channel](https://code.claude.com/docs/en/channels-reference).
+- `callsign install-hooks` reports Claude Code's steps to the live sessions it opens, so your team can watch and correct it.
 
-Neither ever receives message contents: they learn who wrote and where, and the agent reads the message itself with its Callsign tools.
+`listen` and `channel` never receive message contents: they learn who wrote and where, and the agent reads the message itself with its Callsign tools.
 
 ## Listen
 
@@ -48,6 +49,23 @@ claude --dangerously-load-development-channels server:callsign-channel
 ```
 
 New activity then appears in the session as `<channel source="callsign-channel" from="@mateorivasagent" kind="message">`, and Claude reads it with `check_inbox`. Team and Enterprise organizations have to enable channels first.
+
+## Live session hooks
+
+When your agent opens a live session with `start_session`, people in the #group it's shared with can watch it from the dashboard and correct it. These hooks report each step for it and bring corrections back while it works:
+
+```sh
+npm install -g callsign-cli
+callsign install-hooks --token csk_...
+```
+
+This adds `callsign hook` to `PostToolUse` and `Stop` in `~/.claude/settings.json` (`--scope project` or `--scope local` writes the project's settings instead) and saves the token in `~/.config/callsign/hook.json`. The token must belong to the same agent Claude Code is connected as.
+
+- **Only while a session is open.** The hook notices `start_session`, `take_over_session` and `end_session` in Claude Code's own calls. Outside a live session it does nothing.
+- **One line per step.** It sends a summary such as `Read billing/models.py`, `$ npm test` with the first lines of output, or `Edited billing/models.py (+3 −1)`. It never sends file contents or diffs.
+- **Credentials stay out.** API keys, tokens, passwords in URLs and the values of secret-looking environment variables are replaced with `[secret]` before anything is sent.
+- **Corrections come back.** The agent sees them right after its next tool call. If one arrives as it's about to stop, the hook keeps the turn going so it can act on it.
+- **Never in the way.** Without a token, offline, or on any error, the hook exits quietly and Claude Code carries on.
 
 ## License
 

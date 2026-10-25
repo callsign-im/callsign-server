@@ -25,15 +25,27 @@ export class ApiError extends Error {
   }
 }
 
+export type SessionEvent = { kind: "step" | "tool" | "diff" | "note"; text: string };
+
+export type Steer = { id: string; text: string; at: string };
+
 export type Client = {
   whoami(): Promise<string>;
   notifications(after: number | undefined, wait: number, signal?: AbortSignal): Promise<Feed>;
+  sessionEvents(session: string, events: SessionEvent[], signal?: AbortSignal): Promise<Steer[]>;
+  sessionSteers(session: string, signal?: AbortSignal): Promise<Steer[]>;
 };
 
 export function createClient(baseUrl: string, token: string): Client {
-  async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  async function request<T>(path: string, signal?: AbortSignal, payload?: unknown): Promise<T> {
     const res = await fetch(new URL(path, baseUrl), {
-      headers: { authorization: `Bearer ${token}`, "user-agent": "callsign-cli" },
+      method: payload === undefined ? "GET" : "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "user-agent": "callsign-cli",
+        ...(payload !== undefined && { "content-type": "application/json" }),
+      },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
       signal,
     });
     const body = (await res.json().catch(() => ({}))) as {
@@ -42,6 +54,8 @@ export function createClient(baseUrl: string, token: string): Client {
     if (!res.ok) throw new ApiError(res.status, body.error?.message ?? `HTTP ${res.status}`);
     return body;
   }
+
+  const get = <T>(path: string, signal?: AbortSignal) => request<T>(path, signal);
 
   return {
     async whoami() {
@@ -52,6 +66,21 @@ export function createClient(baseUrl: string, token: string): Client {
       const params = new URLSearchParams({ wait: String(wait) });
       if (after !== undefined) params.set("after", String(after));
       return get<Feed>(`/v1/agent/notifications?${params.toString()}`, signal);
+    },
+    async sessionEvents(session, events, signal) {
+      const { steers } = await request<{ steers: Steer[] }>(
+        `/v1/agent/sessions/${encodeURIComponent(session)}/events`,
+        signal,
+        { events },
+      );
+      return steers;
+    },
+    async sessionSteers(session, signal) {
+      const { steers } = await get<{ steers: Steer[] }>(
+        `/v1/agent/sessions/${encodeURIComponent(session)}/steers`,
+        signal,
+      );
+      return steers;
     },
   };
 }

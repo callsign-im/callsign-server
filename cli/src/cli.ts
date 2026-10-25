@@ -4,6 +4,14 @@ import { parseArgs } from "node:util";
 import type { GroupMode } from "./activity.ts";
 import { ApiError, createClient } from "./api.ts";
 import { serveChannel } from "./channel.ts";
+import { defaultStatePath, handleHook, type HookInput } from "./hook.ts";
+import {
+  hookConfigPath,
+  installHooks,
+  loadHookConfig,
+  saveHookConfig,
+  settingsPath,
+} from "./install-hooks.ts";
 import { commandFor, listen, spawnRunner } from "./listen.ts";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -11,8 +19,10 @@ const { version } = createRequire(import.meta.url)("../package.json") as { versi
 const HELP = `callsign ${version}: keep an AI agent on call for Callsign
 
 Usage:
-  callsign listen   Start your agent whenever a message arrives
-  callsign channel  Push Callsign activity into a running Claude Code session
+  callsign listen         Start your agent whenever a message arrives
+  callsign channel        Push Callsign activity into a running Claude Code session
+  callsign install-hooks  Report Claude Code's steps to the live sessions it opens
+  callsign hook           Run by Claude Code's hooks; not meant to be run by hand
 
 Options:
   --token <csk_…>      Agent token from the dashboard (or CALLSIGN_TOKEN)
@@ -28,6 +38,10 @@ listen options:
   --continue           Continue the previous Claude Code conversation on each wake
   --once               Handle what's waiting now, then exit
 
+install-hooks options:
+  --scope <scope>      user (default, every project), project or local
+  --token <csk_…>      Saved for the hook in ~/.config/callsign/hook.json
+
 The agent itself needs Callsign connected, for example:
   claude mcp add --transport http --scope user callsign https://api.callsign.im/mcp
 
@@ -36,6 +50,58 @@ Docs: https://callsign.im/llms-full.txt`;
 function fail(message: string): never {
   process.stderr.write(`callsign: ${message}\n`);
   process.exit(1);
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+// Claude Code runs this after every tool call and when it's about to stop. It must never get in
+// the agent's way: without a token, or on any error, it does nothing.
+async function runHook(token: string | undefined, api: string | undefined) {
+  try {
+    const saved = await loadHookConfig(hookConfigPath());
+    const key = token ?? process.env.CALLSIGN_TOKEN ?? saved?.token;
+    if (!key) return;
+    const client = createClient(
+      api ?? process.env.CALLSIGN_API_URL ?? saved?.api ?? "https://api.callsign.im",
+      key,
+    );
+    const input = JSON.parse(await readStdin()) as HookInput;
+    const output = await handleHook(input, { client, statePath: defaultStatePath() });
+    if (output) process.stdout.write(`${JSON.stringify(output)}\n`);
+  } catch (err) {
+    process.stderr.write(`callsign hook: ${err instanceof Error ? err.message : String(err)}\n`);
+  }
+}
+
+async function runInstall(scope: string, token: string | undefined, api: string | undefined) {
+  if (scope !== "user" && scope !== "project" && scope !== "local") {
+    fail("--scope is user, project or local.");
+  }
+  const path = settingsPath(scope, process.cwd());
+  const { added } = await installHooks(path);
+  process.stdout.write(
+    added.length
+      ? `Added the Callsign hook to ${added.join(" and ")} in ${path}.\n`
+      : `The Callsign hook is already in ${path}.\n`,
+  );
+  const key = token ?? process.env.CALLSIGN_TOKEN;
+  if (key) {
+    const config = hookConfigPath();
+    await saveHookConfig(config, { token: key, ...(api && { api }) });
+    process.stdout.write(`Saved the token for the hook in ${config}.\n`);
+  } else {
+    process.stdout.write(
+      "The hook needs an agent token: run this again with --token, or set CALLSIGN_TOKEN.\n",
+    );
+  }
+  process.stdout.write(
+    "The hook runs `callsign hook`, so keep the CLI installed: npm install -g callsign-cli\n" +
+      "Steps are reported only while the agent drives a live session it opened with start_session.\n",
+  );
 }
 
 async function main() {
@@ -51,6 +117,7 @@ async function main() {
       "server-name": { type: "string", default: "callsign" },
       continue: { type: "boolean", default: false },
       once: { type: "boolean", default: false },
+      scope: { type: "string", default: "user" },
       help: { type: "boolean", short: "h", default: false },
       version: { type: "boolean", short: "v", default: false },
     },
@@ -58,6 +125,8 @@ async function main() {
   const [mode] = positionals;
   if (values.version) return void process.stdout.write(`${version}\n`);
   if (values.help || !mode) return void process.stdout.write(`${HELP}\n`);
+  if (mode === "hook") return runHook(values.token, values.api);
+  if (mode === "install-hooks") return runInstall(values.scope, values.token, values.api);
   if (mode !== "listen" && mode !== "channel") fail(`unknown command "${mode}". Try --help.`);
 
   const token = values.token ?? process.env.CALLSIGN_TOKEN;
