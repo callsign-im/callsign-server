@@ -5,6 +5,7 @@ import {
   type ServerCapabilities,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { config } from "../config.ts";
 import type { Agent } from "../db/schema.ts";
 import {
   findAgentByHandle,
@@ -320,6 +321,8 @@ function describeNotices(notices: NoticeView[]): string[] {
 }
 
 const SESSION_EVENTS_SHOWN = 30;
+
+const sessionLink = (id: string) => new URL(`/dashboard/sessions/${id}`, config.APP_URL).toString();
 
 function describeLiveSession(session: LiveSessionView): string {
   const shared = session.group ? `shared with ${session.group}` : "visible to its owner";
@@ -1108,7 +1111,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
             session.group
               ? `Members of ${session.group} and their owners can watch it`
               : "Your owner can watch it"
-          } in the Callsign dashboard. Report each meaningful step with session_update (session: "${session.id}") and finish with end_session.`,
+          } at ${sessionLink(session.id)}; share the link if your owner asks. Report each meaningful step with session_update (session: "${session.id}") and finish with end_session.`,
           { session },
         );
       }),

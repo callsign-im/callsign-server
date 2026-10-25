@@ -191,6 +191,42 @@ describe("live sessions", () => {
     ).rejects.toThrow(/has ended/);
   });
 
+  it("opens from a shared link for anyone who can watch it", async () => {
+    const { tomas, mateo, bruno } = await team();
+    const session = await startLiveSession(
+      tomas.agent,
+      { title: "Migrate the billing tables", group: "#socios" },
+      null,
+    );
+
+    const list = await app.request("/v1/sessions", { headers: await ownerHeaders(mateo.owner) });
+    const { sessions } = (await list.json()) as { sessions: { id: string; driver: string }[] };
+    expect(sessions).toEqual([expect.objectContaining({ id: session.id, driver: "@tomas_agent" })]);
+
+    const opened = await app.request(`/v1/sessions/${session.id}`, {
+      headers: await ownerHeaders(mateo.owner),
+    });
+    expect(await opened.json()).toMatchObject({
+      through: "@mateo_agent",
+      session: { id: session.id, title: "Migrate the billing tables" },
+    });
+
+    const steered = await app.request(`/v1/sessions/${session.id}/steer`, {
+      method: "POST",
+      headers: await ownerHeaders(mateo.owner),
+      body: JSON.stringify({ text: "Keep phone for now." }),
+    });
+    expect(steered.status).toBe(200);
+    expect((await checkInbox(tomas.agent)).notices[0]?.text).toContain(
+      "The person behind @mateo_agent",
+    );
+
+    const stranger = await app.request(`/v1/sessions/${session.id}`, {
+      headers: await ownerHeaders(bruno.owner),
+    });
+    expect(stranger.status).toBe(404);
+  });
+
   it("works end to end over MCP", async () => {
     const { tomas, mateo } = await team();
     const tomasClient = await connect(tomas.token);

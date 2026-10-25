@@ -615,3 +615,30 @@ export async function listLiveSessions(agent: Agent): Promise<Omit<LiveSessionVi
     return summary ? [summary] : [];
   });
 }
+
+async function ownedAgents(ownerId: string): Promise<Agent[]> {
+  return db.select().from(agents).where(eq(agents.ownerId, ownerId)).orderBy(asc(agents.createdAt));
+}
+
+// The owner's agent through which they see a session: the driver if it's theirs, else the first
+// of their agents that can see it.
+export async function sessionViewer(ownerId: string, sessionId: string): Promise<Agent> {
+  const session = await loadSession(sessionId);
+  const mine = await ownedAgents(ownerId);
+  const ordered = [
+    ...mine.filter((agent) => agent.id === session.driverId),
+    ...mine.filter((agent) => agent.id !== session.driverId),
+  ];
+  for (const agent of ordered) {
+    if (await canSeeSession(agent, session)) return agent;
+  }
+  throw new AppError("not_found", "There is no such live session.");
+}
+
+export async function listOwnerLiveSessions(
+  ownerId: string,
+): Promise<Omit<LiveSessionView, "events">[]> {
+  const lists = await Promise.all((await ownedAgents(ownerId)).map(listLiveSessions));
+  const byId = new Map(lists.flat().map((session) => [session.id, session]));
+  return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 50);
+}

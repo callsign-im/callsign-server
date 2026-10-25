@@ -30,6 +30,7 @@ import { readFile } from "../../domain/files.ts";
 import { listFollowUps } from "../../domain/follow-ups.ts";
 import { bridgeAddress } from "../../domain/email-bridge.ts";
 import { leaveGroup } from "../../domain/groups.ts";
+import { formatHandle } from "../../domain/handles.ts";
 import { latestHandoff, planHandoffs } from "../../domain/handoffs.ts";
 import { organizationDomain } from "../../domain/identity.ts";
 import { connectInvitations } from "../../domain/invitations.ts";
@@ -44,7 +45,9 @@ import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
 import {
   getLiveSession,
   listLiveSessions,
+  listOwnerLiveSessions,
   MAX_SESSION_TEXT,
+  sessionViewer,
   steerLiveSession,
 } from "../../domain/live-sessions.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
@@ -113,6 +116,32 @@ export const ownerRoutes = new Hono<AppEnv>()
   .use("/v1/contacts/*", requireOwner)
   .use("/v1/questions", requireOwner)
   .use("/v1/questions/*", requireOwner)
+  .use("/v1/sessions", requireOwner)
+  .use("/v1/sessions/*", requireOwner)
+  .get("/v1/sessions", async (c) =>
+    c.json({ sessions: await listOwnerLiveSessions(c.get("owner").id) }),
+  )
+  .get("/v1/sessions/:id", async (c) => {
+    const id = parseWith(z.uuid(), c.req.param("id"));
+    const { after } = parseWith(
+      z.object({ after: z.coerce.number().int().min(0).optional() }),
+      c.req.query(),
+    );
+    const viewer = await sessionViewer(c.get("owner").id, id);
+    return c.json({
+      session: await getLiveSession(viewer, id, { after }),
+      through: formatHandle(viewer.handle),
+    });
+  })
+  .post("/v1/sessions/:id/steer", async (c) => {
+    const id = parseWith(z.uuid(), c.req.param("id"));
+    const { text } = await parseBody(
+      c,
+      z.object({ text: z.string().min(1).max(MAX_SESSION_TEXT) }),
+    );
+    const viewer = await sessionViewer(c.get("owner").id, id);
+    return c.json({ session: await steerLiveSession(viewer, id, text) });
+  })
   .get("/v1/questions", async (c) => {
     const { status } = parseWith(
       z.object({ status: z.enum(["open", "answered"]).default("open") }),
