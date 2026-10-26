@@ -24,11 +24,17 @@ import {
   listOwnerAgents,
   publicProfile,
   revokeAgentToken,
+  revokeTokens,
   type Product,
+  type RevokeReason,
 } from "./agents.ts";
+import { raiseAlert } from "./alerts.ts";
 import { AppError } from "./errors.ts";
+import { formatHandle } from "./handles.ts";
 import { connectInvitations } from "./invitations.ts";
 import { appendLedgerEvent, broadcast } from "./ledger.ts";
+import type { OwnerSession } from "./owners.ts";
+import { assertStepUp } from "./passkeys.ts";
 
 export const OAUTH_SCOPE = "agent";
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -378,7 +384,11 @@ export async function authorizationView(owner: Owner, id: string, nonce: string 
       redirect: redirectTarget(row.redirectUri),
     },
     expiresAt: row.expiresAt.toISOString(),
-    agents: owned.map((agent) => ({ ...publicProfile(agent), primary: agent.primary })),
+    agents: owned.map((agent) => ({
+      ...publicProfile(agent),
+      primary: agent.primary,
+      frozen: agent.frozenAt !== null,
+    })),
   };
 }
 
@@ -400,11 +410,13 @@ export type AuthorizationDecision =
 
 export async function decideAuthorization(
   owner: Owner,
+  session: OwnerSession,
   id: string,
   nonce: string | undefined,
   input: AuthorizationDecision,
 ): Promise<string> {
   const row = await pendingAuthorization(id, nonce);
+  if (input.decision === "approve") await assertStepUp(owner.id, session);
   if (input.decision === "deny") {
     await db.delete(oauthAuthorizations).where(eq(oauthAuthorizations.id, row.id));
     return redirectWith(row.redirectUri, {
@@ -420,6 +432,9 @@ export async function decideAuthorization(
     await connectInvitations(agent);
   } else if (input.agent) agent = await getOwnedAgent(owner.id, input.agent);
   else throw new AppError("invalid_input", "Choose an agent or create a new one.");
+  if (agent.frozenAt) {
+    throw new AppError("conflict", `${formatHandle(agent.handle)} is frozen. Unfreeze it first.`);
+  }
 
   const code = randomToken();
   const [granted] = await db
@@ -535,6 +550,7 @@ async function redeemCode(client: OAuthClient, params: Record<string, string | u
     ? await db.select().from(agents).where(eq(agents.id, row.agentId))
     : [];
   if (!agent) throw new OAuthError("invalid_grant", "The agent no longer exists.");
+  if (agent.frozenAt) throw new OAuthError("invalid_grant", "The agent is frozen by its owner.");
 
   const tokens = freshTokens();
   const tokenId = uuidv7();
@@ -566,12 +582,29 @@ async function revokeTokensFromReusedCode(codeHash: string): Promise<void> {
     .where(
       and(eq(oauthAuthorizations.codeHash, codeHash), isNotNull(oauthAuthorizations.consumedAt)),
     );
-  if (!used?.tokenId) return;
-  await db
-    .update(agentTokens)
-    .set({ revokedAt: new Date() })
-    .where(and(eq(agentTokens.id, used.tokenId), isNull(agentTokens.revokedAt)));
-  logger.warn({ tokenId: used.tokenId }, "authorization code reused, token revoked");
+  if (used?.tokenId) await revokeLeakedToken(used.tokenId, "code_reused");
+}
+
+/** Revokes a token that showed signs of being copied, and tells the owner. */
+async function revokeLeakedToken(
+  tokenId: string,
+  reason: Extract<RevokeReason, "code_reused" | "refresh_token_reused">,
+): Promise<void> {
+  const [row] = await db
+    .select({ token: agentTokens, agent: agents })
+    .from(agentTokens)
+    .innerJoin(agents, eq(agents.id, agentTokens.agentId))
+    .where(and(eq(agentTokens.id, tokenId), isNull(agentTokens.revokedAt)));
+  if (!row) return;
+  const revoked = await revokeTokens(row.agent, [tokenId], "system", reason);
+  if (revoked === 0) return;
+  logger.warn({ tokenId, reason }, "oauth credential reused, token revoked");
+  await raiseAlert({
+    agent: row.agent,
+    kind: reason,
+    tokenId,
+    details: { client: row.token.name, tokenPrefix: row.token.prefix },
+  });
 }
 
 async function refreshTokens(client: OAuthClient, params: Record<string, string | undefined>) {
@@ -593,16 +626,23 @@ async function refreshTokens(client: OAuthClient, params: Record<string, string 
     );
   if (!row) {
     // A rotated refresh token coming back means it leaked, so the whole grant goes.
-    const revoked = await db
-      .update(agentTokens)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(agentTokens.previousRefreshTokenHash, hash), isNull(agentTokens.revokedAt)))
-      .returning({ id: agentTokens.id });
-    if (revoked.length > 0) logger.warn({ tokenId: revoked[0]?.id }, "refresh token reused");
+    const [leaked] = await db
+      .select({ id: agentTokens.id })
+      .from(agentTokens)
+      .where(and(eq(agentTokens.previousRefreshTokenHash, hash), isNull(agentTokens.revokedAt)));
+    if (leaked) await revokeLeakedToken(leaked.id, "refresh_token_reused");
     throw new OAuthError("invalid_grant", "The refresh token is invalid, expired or revoked.");
   }
   if (row.clientId !== client.id) {
     throw new OAuthError("invalid_grant", "The refresh token was issued to another client.");
+  }
+  const [owning] = await db
+    .select({ frozenAt: agents.frozenAt })
+    .from(agents)
+    .where(eq(agents.id, row.agentId));
+  // Refused without revoking, so the connection works again once the owner unfreezes the agent.
+  if (owning?.frozenAt) {
+    throw new OAuthError("invalid_grant", "The agent is frozen by its owner.");
   }
 
   const tokens = freshTokens();

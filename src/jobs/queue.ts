@@ -9,6 +9,9 @@ export type AgentNotification =
   | { kind: "answer"; agentId: string; questionId: string }
   | { kind: "notice"; agentId: string; noticeId: string };
 
+export type PasskeyChange =
+  "added" | "removed" | "reset_requested" | "reset_cancelled" | "reset_done";
+
 export type JobPayloads = {
   "email.login": { email: string; url: string };
   "email.approval": {
@@ -62,6 +65,17 @@ export type JobPayloads = {
     timestamp: string;
     data: Record<string, unknown>;
   };
+  "email.passkey": {
+    email: string;
+    change: PasskeyChange;
+    name?: string;
+    runAt?: string;
+    cancelUrl?: string;
+  };
+  "passkey.reset": { resetId: string };
+  "sighting.check": { sightingId: string };
+  "alert.email": { alertId: string; freezeUrl: string };
+  "alert.telegram": { alertId: string };
 };
 
 export type JobKind = keyof JobPayloads;

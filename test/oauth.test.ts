@@ -3,7 +3,8 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { and, eq, sql as where } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { db, sql } from "../src/db/client.ts";
-import { jobs } from "../src/db/schema.ts";
+import { agents, jobs, securityAlerts } from "../src/db/schema.ts";
+import { listLedger } from "../src/domain/ledger.ts";
 import { createApp } from "../src/http/app.ts";
 import { startServer } from "./helpers.ts";
 
@@ -254,6 +255,41 @@ describe("oauth for mcp clients", () => {
     });
     expect(await replayed.json()).toMatchObject({ error: "invalid_grant" });
     expect(await mcpStatus(second.access_token)).toBe(401);
+
+    const [agent] = await db.select().from(agents);
+    const [alerted, revoked] = await listLedger(agent!, { limit: 2 });
+    expect(revoked).toMatchObject({
+      type: "token.revoked",
+      actor: "system",
+      data: { reason: "refresh_token_reused" },
+    });
+    expect(alerted).toMatchObject({
+      type: "security.alert",
+      data: { kind: "refresh_token_reused" },
+    });
+    expect(await db.select().from(securityAlerts)).toMatchObject([
+      { kind: "refresh_token_reused", status: "open" },
+    ]);
+  });
+
+  it("refuses to refresh a frozen agent's tokens without revoking them", async () => {
+    const { clientId, exchanged } = await connect();
+    const first = (await exchanged.json()) as Tokens;
+    await db.update(agents).set({ frozenAt: new Date() });
+    const refused = await token({
+      grant_type: "refresh_token",
+      refresh_token: first.refresh_token,
+      client_id: clientId,
+    });
+    expect(await refused.json()).toMatchObject({ error: "invalid_grant" });
+
+    await db.update(agents).set({ frozenAt: null });
+    const refreshed = await token({
+      grant_type: "refresh_token",
+      refresh_token: first.refresh_token,
+      client_id: clientId,
+    });
+    expect(refreshed.status).toBe(200);
   });
 
   it("refuses reused codes and revokes what they produced", async () => {
@@ -269,6 +305,7 @@ describe("oauth for mcp clients", () => {
     expect(again.status).toBe(400);
     expect(await again.json()).toMatchObject({ error: "invalid_grant" });
     expect(await mcpStatus(tokens.access_token)).toBe(401);
+    expect(await db.select().from(securityAlerts)).toMatchObject([{ kind: "code_reused" }]);
   });
 
   it("checks PKCE, the client and expiry", async () => {

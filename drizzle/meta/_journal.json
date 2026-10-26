@@ -127,6 +127,13 @@
       "when": 1792983967201,
       "tag": "0017_public_agent_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793029082858,
+      "tag": "0018_passkeys_freeze_alerts",
+      "breakpoints": true
     }
   ]
 }

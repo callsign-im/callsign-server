@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   agentRules,
@@ -23,8 +23,6 @@ import {
   takeOverLiveSession,
 } from "../../domain/live-sessions.ts";
 import {
-  createGroup,
-  inviteToGroup,
   leaveGroup,
   listGroups,
   MAX_GROUP_MEMBERS,
@@ -33,13 +31,19 @@ import {
 } from "../../domain/groups.ts";
 import { listFollowUps, scheduleFollowUp } from "../../domain/follow-ups.ts";
 import {
+  agentCreateGroup,
+  agentInvitePerson,
+  agentInviteToGroup,
+  agentSendMessage,
+  type AgentContext,
+} from "../../domain/guard.ts";
+import {
   createHandoff,
   latestHandoff,
   MAX_HANDOFF_FILE_LENGTH,
   MAX_HANDOFF_FILES,
   MAX_HANDOFF_TEXT,
 } from "../../domain/handoffs.ts";
-import { invitePerson } from "../../domain/invitations.ts";
 import {
   addTasks,
   createPlan,
@@ -71,12 +75,20 @@ import {
   MAX_BODY_LENGTH,
   MAX_WAIT_SECONDS,
   readInbox,
-  sendMessage,
   UNTRUSTED_NOTICE,
   waitForInbox,
 } from "../../domain/messaging.ts";
 import { requireAgent } from "../auth.ts";
 import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
+
+function agentContext(c: Context<AppEnv>): AgentContext {
+  return {
+    agent: c.get("agent"),
+    tokenId: c.get("tokenId"),
+    client: c.get("client"),
+    seen: c.get("seen"),
+  };
+}
 
 const sendBody = z.object({
   to: z.string().min(1).max(254),
@@ -241,7 +253,7 @@ export const agentRoutes = new Hono<AppEnv>()
   })
   .post("/v1/agent/messages", async (c) => {
     const input = await parseBody(c, sendBody);
-    return c.json(await sendMessage(c.get("agent"), input), 201);
+    return c.json(await agentSendMessage(agentContext(c), input), 201);
   })
   .post("/v1/agent/plans", async (c) => {
     const { with: target, title, tasks } = await parseBody(c, planBody);
@@ -332,7 +344,12 @@ export const agentRoutes = new Hono<AppEnv>()
   )
   .get("/v1/agent/notifications", async (c) => {
     const { wait, after } = parseWith(notificationsQuery, c.req.query());
-    return c.json(await waitForNotifications(c.get("agent"), after, wait, c.req.raw.signal));
+    return c.json(
+      await waitForNotifications(c.get("agent"), after, wait, {
+        signal: c.req.raw.signal,
+        tokenId: c.get("tokenId"),
+      }),
+    );
   })
   .get("/v1/agent/inbox", async (c) => {
     const { wait, since } = parseWith(inboxQuery, c.req.query());
@@ -370,7 +387,7 @@ export const agentRoutes = new Hono<AppEnv>()
   .get("/v1/agent/groups", async (c) => c.json({ groups: await listGroups(c.get("agent")) }))
   .post("/v1/agent/groups", async (c) => {
     const input = await parseBody(c, groupBody);
-    return c.json(await createGroup(c.get("agent"), input), 201);
+    return c.json(await agentCreateGroup(agentContext(c), input), 201);
   })
   .post("/v1/agent/groups/:name/members", async (c) => {
     const { members, note } = await parseBody(
@@ -378,7 +395,10 @@ export const agentRoutes = new Hono<AppEnv>()
       z.object({ members: handles, note: z.string().max(1000).optional() }),
     );
     return c.json(
-      await inviteToGroup(c.get("agent"), group(c.req.param("name")), { handles: members, note }),
+      await agentInviteToGroup(agentContext(c), group(c.req.param("name")), {
+        handles: members,
+        note,
+      }),
     );
   })
   .delete("/v1/agent/groups/:name/members/:handle", async (c) => {
@@ -456,7 +476,7 @@ export const agentRoutes = new Hono<AppEnv>()
       c,
       z.object({ email: z.string().min(3).max(254), note: z.string().max(1000).optional() }),
     );
-    return c.json(await invitePerson(c.get("agent"), input), 201);
+    return c.json(await agentInvitePerson(agentContext(c), input), 201);
   })
   .post("/v1/agent/actions", async (c) => {
     const agent = c.get("agent");

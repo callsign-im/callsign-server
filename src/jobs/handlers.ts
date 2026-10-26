@@ -1,20 +1,23 @@
 import { config, supportEmail } from "../config.ts";
 import { webhookSecret } from "../domain/agents.ts";
+import { sendAlertEmail } from "../domain/alerts.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { deliverBridgeEmail } from "../domain/email-bridge.ts";
 import { receiveBridgeEmail } from "../domain/email-inbound.ts";
 import { fireFollowUp } from "../domain/follow-ups.ts";
 import { helloReply } from "../domain/hello.ts";
 import { describeNotification } from "../domain/notifications.ts";
+import { runPasskeyReset } from "../domain/passkeys.ts";
 import { remindOverdueTask } from "../domain/plans.ts";
-import { sendQuestionToTelegram } from "../domain/telegram.ts";
+import { checkSighting } from "../domain/sightings.ts";
+import { sendAlertToTelegram, sendQuestionToTelegram } from "../domain/telegram.ts";
 import { deliverEvent, fanOutEvent } from "../domain/subscriptions.ts";
 import { deliverWake } from "../domain/wake.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
 import { sendMail } from "../lib/mailer.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
 import { postJson } from "../lib/safe-fetch.ts";
-import type { JobKind, JobPayloads } from "./queue.ts";
+import type { JobKind, JobPayloads, PasskeyChange } from "./queue.ts";
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const EMAIL_THROTTLE_SECONDS = 900;
@@ -23,6 +26,54 @@ type Handlers = { [K in JobKind]: (payload: JobPayloads[K], jobId: string) => Pr
 
 export function signWebhook(secret: string, timestamp: number, body: string): string {
   return `t=${timestamp},v1=${hmacSha256(secret, `${timestamp}.${body}`)}`;
+}
+
+function passkeyMail(
+  change: PasskeyChange,
+  { name, runAt, cancelUrl }: { name?: string; runAt?: string; cancelUrl?: string },
+): { subject: string; lines: string[] } {
+  const notYou = `If it wasn't you, contact ${supportEmail} right away.`;
+  switch (change) {
+    case "added":
+      return {
+        subject: "A passkey was added to your Callsign account",
+        lines: [
+          `The passkey "${name}" was added to your account. From now on Callsign asks for it before sensitive changes, like connecting apps, creating tokens or unfreezing an agent.`,
+          "",
+          `If you didn't add it, remove it from your account page. ${notYou}`,
+        ],
+      };
+    case "removed":
+      return {
+        subject: "A passkey was removed from your Callsign account",
+        lines: [`The passkey "${name}" was removed from your account.`, "", notYou],
+      };
+    case "reset_requested":
+      return {
+        subject: "Your Callsign passkeys will be removed",
+        lines: [
+          `Someone signed in to your account and asked to remove every passkey, which is how you recover after losing them. It happens on ${runAt ? new Date(runAt).toUTCString() : "in 72 hours"}.`,
+          "",
+          "If it wasn't you, cancel it now. Someone may have access to your email:",
+          "",
+          cancelUrl ?? "",
+        ],
+      };
+    case "reset_cancelled":
+      return {
+        subject: "Passkey removal cancelled",
+        lines: ["The request to remove your passkeys was cancelled. They keep working."],
+      };
+    case "reset_done":
+      return {
+        subject: "Your Callsign passkeys were removed",
+        lines: [
+          "As requested 72 hours ago, every passkey was removed from your account. You can add a new one from your account page.",
+          "",
+          notYou,
+        ],
+      };
+  }
 }
 
 export const handlers: Handlers = {
@@ -173,6 +224,11 @@ export const handlers: Handlers = {
     });
   },
 
+  async "email.passkey"({ email, change, ...details }) {
+    const { subject, lines } = passkeyMail(change, details);
+    await sendMail({ to: email, subject, text: lines.join("\n") });
+  },
+
   "agent.wake": deliverWake,
   "telegram.question": sendQuestionToTelegram,
   "hello.reply": helloReply,
@@ -182,4 +238,8 @@ export const handlers: Handlers = {
   "follow_up.due": fireFollowUp,
   "agent.events": fanOutEvent,
   "event.delivery": deliverEvent,
+  "passkey.reset": runPasskeyReset,
+  "sighting.check": checkSighting,
+  "alert.email": sendAlertEmail,
+  "alert.telegram": sendAlertToTelegram,
 };

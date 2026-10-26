@@ -58,9 +58,46 @@ export const sessions = pgTable(
       .references(() => owners.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull().unique(),
     expiresAt: timestamptz("expires_at").notNull(),
+    // A passkey check raises the session to "sudo mode" for a few minutes.
+    elevatedUntil: timestamptz("elevated_until"),
     createdAt: createdAt(),
   },
   (t) => [index("sessions_owner_id_idx").on(t.ownerId)],
+);
+
+export const ownerPasskeys = pgTable(
+  "owner_passkeys",
+  {
+    id: uuid("id").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id").notNull().unique(),
+    publicKey: bytea("public_key").notNull(),
+    counter: counter("counter").notNull().default(0),
+    transports: jsonb("transports").$type<string[]>(),
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull().default(false),
+    name: text("name").notNull(),
+    lastUsedAt: timestamptz("last_used_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("owner_passkeys_owner_id_idx").on(t.ownerId)],
+);
+
+export const passkeyResets = pgTable(
+  "passkey_resets",
+  {
+    id: uuid("id").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    cancelTokenHash: text("cancel_token_hash").notNull().unique(),
+    runAt: timestamptz("run_at").notNull(),
+    status: text("status").$type<"pending" | "cancelled" | "done">().notNull().default("pending"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("passkey_resets_owner_id_idx").on(t.ownerId)],
 );
 
 export const agents = pgTable(
@@ -92,6 +129,7 @@ export const agents = pgTable(
     ledgerHead: text("ledger_head"),
     lastSeenAt: timestamptz("last_seen_at"),
     suspendedAt: timestamptz("suspended_at"),
+    frozenAt: timestamptz("frozen_at"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -126,6 +164,70 @@ export const agentTokens = pgTable(
     index("agent_tokens_agent_id_idx").on(t.agentId),
     index("agent_tokens_previous_refresh_token_hash_idx").on(t.previousRefreshTokenHash),
   ],
+);
+
+// Where each token was used from. IPs are sealed with the owner's key and matched by an HMAC digest.
+export const tokenSightings = pgTable(
+  "token_sightings",
+  {
+    id: uuid("id").primaryKey(),
+    tokenId: uuid("token_id")
+      .notNull()
+      .references(() => agentTokens.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    ipDigest: text("ip_digest").notNull(),
+    ip: sealed("ip").notNull(),
+    userAgent: sealed("user_agent"),
+    network: sealed("network"),
+    networkDigest: text("network_digest"),
+    firstSeenAt: timestamptz("first_seen_at").notNull().defaultNow(),
+    lastSeenAt: timestamptz("last_seen_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("token_sightings_token_ip_idx").on(t.tokenId, t.ipDigest),
+    index("token_sightings_agent_id_idx").on(t.agentId),
+  ],
+);
+
+export const agentNetworks = pgTable(
+  "agent_networks",
+  {
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    networkDigest: text("network_digest").notNull(),
+    label: sealed("label").notNull(),
+    status: text("status").$type<"known" | "pending">().notNull(),
+    firstSeenAt: timestamptz("first_seen_at").notNull().defaultNow(),
+    lastSeenAt: timestamptz("last_seen_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.networkDigest] })],
+);
+
+export type AlertKind = "new_network" | "burst" | "refresh_token_reused" | "code_reused";
+export type AlertStatus = "open" | "acknowledged" | "frozen" | "resolved";
+
+export const securityAlerts = pgTable(
+  "security_alerts",
+  {
+    id: uuid("id").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id").references(() => agentTokens.id, { onDelete: "set null" }),
+    kind: text("kind").$type<AlertKind>().notNull(),
+    details: sealed("details").notNull(),
+    networkDigest: text("network_digest"),
+    actionTokenHash: text("action_token_hash").unique(),
+    status: text("status").$type<AlertStatus>().notNull().default("open"),
+    resolvedVia: text("resolved_via"),
+    resolvedAt: timestamptz("resolved_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("security_alerts_owner_status_idx").on(t.ownerId, t.status, t.createdAt)],
 );
 
 export const eventSubscriptions = pgTable(
@@ -598,3 +700,6 @@ export type Report = typeof reports.$inferSelect;
 export type Handoff = typeof handoffs.$inferSelect;
 export type LiveSession = typeof liveSessions.$inferSelect;
 export type LiveSessionEvent = typeof liveSessionEvents.$inferSelect;
+export type OwnerPasskey = typeof ownerPasskeys.$inferSelect;
+export type TokenSighting = typeof tokenSightings.$inferSelect;
+export type SecurityAlert = typeof securityAlerts.$inferSelect;

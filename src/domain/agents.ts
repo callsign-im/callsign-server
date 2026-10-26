@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { config } from "../config.ts";
 import { db, type Executor, type Tx } from "../db/client.ts";
 import {
@@ -25,7 +25,7 @@ import {
   type HandleStatus,
 } from "./handles.ts";
 import { ownerKey } from "./keys.ts";
-import { appendLedgerEvent, broadcast } from "./ledger.ts";
+import { appendLedgerEvent, broadcast, type Actor, type RecordedEvent } from "./ledger.ts";
 import { lockOwner } from "./owners.ts";
 
 export const PRODUCTS = ["dots", "claude-duet", "grok-bot", "muse", "custom"] as const;
@@ -304,6 +304,9 @@ export async function createAgentToken(
   agent: Agent,
   name: string,
 ): Promise<{ token: string; record: AgentToken }> {
+  if (agent.frozenAt) {
+    throw new AppError("conflict", `${formatHandle(agent.handle)} is frozen. Unfreeze it first.`);
+  }
   const token = randomToken("csk");
   const { record, recorded } = await db.transaction(async (tx) => {
     const [record] = await tx
@@ -343,32 +346,73 @@ export async function listAgentTokens(agentId: string): Promise<AgentToken[]> {
     .orderBy(desc(agentTokens.createdAt));
 }
 
+/** Why a token stopped working, kept on the ledger next to the revocation. */
+export type RevokeReason =
+  "revoked" | "revoke_all" | "unfreeze" | "refresh_token_reused" | "code_reused";
+
+/** Revokes some or all of an agent's tokens inside a transaction; the caller broadcasts. */
+export async function revokeTokensInTx(
+  tx: Tx,
+  agent: Pick<Agent, "id" | "ownerId" | "handle">,
+  which: string[] | "all",
+  actor: Actor,
+  reason: RevokeReason,
+): Promise<RecordedEvent[]> {
+  if (which !== "all" && which.length === 0) return [];
+  const revoked = await tx
+    .update(agentTokens)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(agentTokens.agentId, agent.id),
+        isNull(agentTokens.revokedAt),
+        ...(which === "all" ? [] : [inArray(agentTokens.id, which)]),
+      ),
+    )
+    .returning();
+  if (revoked.length === 0) return [];
+  await tx.delete(eventSubscriptions).where(
+    inArray(
+      eventSubscriptions.tokenId,
+      revoked.map((token) => token.id),
+    ),
+  );
+  const recorded: RecordedEvent[] = [];
+  for (const token of revoked) {
+    recorded.push(
+      await appendLedgerEvent(tx, agent, {
+        type: "token.revoked",
+        actor,
+        data: {
+          tokenId: token.id,
+          name: token.name,
+          prefix: token.prefix,
+          ...(reason !== "revoked" && { reason }),
+        },
+      }),
+    );
+  }
+  return recorded;
+}
+
+export async function revokeTokens(
+  agent: Pick<Agent, "id" | "ownerId" | "handle">,
+  which: string[] | "all",
+  actor: Actor,
+  reason: RevokeReason,
+): Promise<number> {
+  const recorded = await db.transaction((tx) => revokeTokensInTx(tx, agent, which, actor, reason));
+  await broadcast(recorded);
+  return recorded.length;
+}
+
 export async function revokeAgentToken(
   agent: Agent,
   tokenId: string,
   actor: "owner" | "agent" = "owner",
 ): Promise<void> {
-  const recorded = await db.transaction(async (tx) => {
-    const [revoked] = await tx
-      .update(agentTokens)
-      .set({ revokedAt: new Date() })
-      .where(
-        and(
-          eq(agentTokens.id, tokenId),
-          eq(agentTokens.agentId, agent.id),
-          isNull(agentTokens.revokedAt),
-        ),
-      )
-      .returning();
-    if (!revoked) throw new AppError("not_found", "Token not found.");
-    await tx.delete(eventSubscriptions).where(eq(eventSubscriptions.tokenId, revoked.id));
-    return appendLedgerEvent(tx, agent, {
-      type: "token.revoked",
-      actor,
-      data: { tokenId: revoked.id, name: revoked.name, prefix: revoked.prefix },
-    });
-  });
-  await broadcast([recorded]);
+  const revoked = await revokeTokens(agent, [tokenId], actor, "revoked");
+  if (revoked === 0) throw new AppError("not_found", "Token not found.");
 }
 
 export async function authenticateAgentToken(token: string): Promise<Agent | null> {
@@ -460,6 +504,7 @@ export async function ownerView(agent: Agent) {
       : null,
     lastSeenAt: agent.lastSeenAt?.toISOString() ?? null,
     suspendedAt: agent.suspendedAt?.toISOString() ?? null,
+    frozenAt: agent.frozenAt?.toISOString() ?? null,
     ledgerEvents: agent.ledgerSeq,
     ledgerHead: agent.ledgerHead,
   };

@@ -3,6 +3,8 @@ export type ErrorCode =
   | "unauthorized"
   | "forbidden"
   | "pending_approval"
+  | "agent_frozen"
+  | "step_up_required"
   | "not_found"
   | "conflict"
   | "rate_limited";
@@ -12,6 +14,8 @@ const STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 429> = {
   unauthorized: 401,
   forbidden: 403,
   pending_approval: 403,
+  agent_frozen: 403,
+  step_up_required: 403,
   not_found: 404,
   conflict: 409,
   rate_limited: 429,

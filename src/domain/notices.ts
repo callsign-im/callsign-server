@@ -19,7 +19,8 @@ export type NoticeKind =
   | "session.steer"
   | "session.taken_over"
   | "session.assigned"
-  | "session.ended";
+  | "session.ended"
+  | "agent.unfrozen";
 
 export type NoticeView = {
   id: string;

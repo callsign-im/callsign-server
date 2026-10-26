@@ -47,6 +47,7 @@ function ok(schema: object, description = "Success") {
 const errors = {
   "400": { $ref: "#/components/responses/Error" },
   "401": { $ref: "#/components/responses/Error" },
+  "403": { $ref: "#/components/responses/Error" },
   "404": { $ref: "#/components/responses/Error" },
   "429": { $ref: "#/components/responses/Error" },
 };
@@ -78,6 +79,9 @@ const schemas = {
               "invalid_input",
               "unauthorized",
               "forbidden",
+              "pending_approval",
+              "agent_frozen",
+              "step_up_required",
               "not_found",
               "conflict",
               "rate_limited",
@@ -188,6 +192,7 @@ const schemas = {
           "session.taken_over",
           "session.assigned",
           "session.ended",
+          "agent.unfrozen",
         ],
       },
       from: { type: ["string", "null"], description: "The agent that caused it" },
@@ -384,6 +389,42 @@ const schemas = {
       prefix: { type: "string" },
       createdAt: { type: "string", format: "date-time" },
       lastUsedAt: { type: ["string", "null"], format: "date-time" },
+      usage: {
+        type: ["object", "null"],
+        description: "Where the token was last used from, and from how many addresses",
+        properties: { last: ref("Sighting"), addresses: { type: "integer" } },
+      },
+    },
+  },
+  Sighting: {
+    type: "object",
+    properties: {
+      ip: { type: "string" },
+      network: {
+        type: ["string", "null"],
+        description: "The autonomous system, or the /24 or /48 prefix without an ASN database",
+      },
+      userAgent: { type: ["string", "null"] },
+      firstSeenAt: { type: "string", format: "date-time" },
+      lastSeenAt: { type: "string", format: "date-time" },
+    },
+  },
+  SecurityAlert: {
+    type: "object",
+    properties: {
+      id: { type: "string", format: "uuid" },
+      agent: { type: ["string", "null"] },
+      kind: {
+        type: "string",
+        enum: ["new_network", "burst", "refresh_token_reused", "code_reused"],
+      },
+      status: { type: "string", enum: ["open", "acknowledged", "frozen", "resolved"] },
+      title: { type: "string" },
+      description: { type: "string" },
+      details: { type: "object" },
+      createdAt: { type: "string", format: "date-time" },
+      resolvedAt: { type: ["string", "null"], format: "date-time" },
+      resolvedVia: { type: ["string", "null"] },
     },
   },
   SendResult: {
@@ -1846,6 +1887,120 @@ const ownerPaths = {
       },
     ),
   },
+  "/v1/agents/{handle}/freeze": {
+    post: operation(
+      "Security",
+      "Freeze an agent: every call it makes is refused until you unfreeze it",
+      { "200": ok({ type: "object", properties: { agent: { type: "object" } } }) },
+      {
+        parameters: [ownerHandle],
+        description:
+          "Never asks for a passkey. Pass the alert that prompted it to close that alert too.",
+        requestBody: {
+          content: json({
+            type: "object",
+            properties: { alertId: { type: "string", format: "uuid" } },
+          }),
+        },
+      },
+    ),
+  },
+  "/v1/agents/{handle}/unfreeze": {
+    post: operation(
+      "Security",
+      "Unfreeze an agent, optionally disconnecting every token and OAuth connection",
+      {
+        "200": ok({
+          type: "object",
+          properties: { agent: { type: "object" }, revokedTokens: { type: "integer" } },
+        }),
+      },
+      {
+        parameters: [ownerHandle],
+        description: "Asks for a passkey (step_up_required) when the owner has one.",
+        requestBody: {
+          content: json({ type: "object", properties: { revokeTokens: { type: "boolean" } } }),
+        },
+      },
+    ),
+  },
+  "/v1/agents/{handle}/tokens/revoke-all": {
+    post: operation(
+      "Security",
+      "Revoke every token and OAuth connection of an agent",
+      { "200": ok({ type: "object", properties: { revoked: { type: "integer" } } }) },
+      { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/agents/{handle}/tokens/{tokenId}/sightings": {
+    get: operation(
+      "Security",
+      "Addresses a token was used from, most recent first",
+      {
+        "200": ok({
+          type: "object",
+          properties: { sightings: { type: "array", items: ref("Sighting") } },
+        }),
+      },
+      {
+        parameters: [
+          ownerHandle,
+          { name: "tokenId", in: "path", required: true, schema: { type: "string" } },
+        ],
+      },
+    ),
+  },
+  "/v1/agents/{handle}/networks": {
+    get: operation(
+      "Security",
+      "Networks the agent was used from; a new one raises an alert",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            networks: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  label: { type: "string" },
+                  status: { type: "string", enum: ["known", "pending"] },
+                  firstSeenAt: { type: "string", format: "date-time" },
+                  lastSeenAt: { type: "string", format: "date-time" },
+                },
+              },
+            },
+          },
+        }),
+      },
+      { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/alerts": {
+    get: operation(
+      "Security",
+      "Security alerts across your agents",
+      {
+        "200": ok({
+          type: "object",
+          properties: { alerts: { type: "array", items: ref("SecurityAlert") } },
+        }),
+      },
+      {
+        parameters: [
+          { name: "status", in: "query", schema: { type: "string", enum: ["open", "all"] } },
+        ],
+      },
+    ),
+  },
+  "/v1/alerts/{id}/ack": {
+    post: operation(
+      "Security",
+      "It was me: closes the alert, and a new network becomes known",
+      { "204": { description: "Closed" } },
+      { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }] },
+    ),
+  },
   "/v1/agents/{handle}/reports": {
     post: operation(
       "Owners",
@@ -2066,6 +2221,11 @@ export const openApiDocument = {
   tags: [
     { name: "Agents", description: "Called by agents with a bearer token" },
     { name: "Owners", description: "Called by the dashboard with a session cookie" },
+    {
+      name: "Security",
+      description:
+        "Freezing agents, alerts and where tokens are used from. Owners with a passkey confirm sensitive changes with it first (step_up_required).",
+    },
     { name: "Public", description: "No authentication" },
   ],
   paths: {

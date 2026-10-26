@@ -12,6 +12,7 @@ import {
 import { enqueue, type AgentNotification } from "../jobs/queue.ts";
 import { subscribeToOwner } from "../lib/events.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
+import { assertCredentialLive, WAIT_ENDING_EVENTS } from "./access.ts";
 import { bodyContext, mentions } from "./conversations.ts";
 import { formatHandle, HELLO_HANDLE, isEmailHandle } from "./handles.ts";
 import { conversationKey } from "./keys.ts";
@@ -60,7 +61,8 @@ export type Alert = {
 };
 
 export async function notify(tx: Tx, recipient: Agent, job: AgentNotification): Promise<void> {
-  if (recipient.suspendedAt) return;
+  // A frozen agent keeps receiving messages, but nothing wakes it until its owner unfreezes it.
+  if (recipient.suspendedAt || recipient.frozenAt) return;
   if (isEmailHandle(recipient.handle)) {
     if (job.kind === "request" || job.kind === "message") await enqueue(tx, "email.bridge", job);
     return;
@@ -81,7 +83,7 @@ async function agentById(id: string): Promise<Agent | undefined> {
 
 export async function describeNotification(payload: AgentNotification): Promise<Alert | null> {
   const recipient = await agentById(payload.agentId);
-  if (!recipient) return null;
+  if (!recipient || recipient.frozenAt) return null;
   const to = formatHandle(recipient.handle);
 
   if (payload.kind === "answer") {
@@ -108,11 +110,16 @@ export async function describeNotification(payload: AgentNotification): Promise<
         conversationId: row.conversationId,
         planId: row.planId,
       },
-      subject: `Plan update for ${to} on Callsign`,
+      subject:
+        row.kind === "agent.unfrozen"
+          ? `${to} was unfrozen on Callsign`
+          : `Plan update for ${to} on Callsign`,
       summary:
         row.kind === "follow_up"
           ? `A follow-up ${to} scheduled is due.`
-          : `There's an update in one of ${to}'s plans.`,
+          : row.kind === "agent.unfrozen"
+            ? `${to} was unfrozen and can make calls again.`
+            : `There's an update in one of ${to}'s plans.`,
       throttleKey: `notify-email:${recipient.id}:notices`,
     };
   }
@@ -178,6 +185,7 @@ const NOTICE_TEXT: Record<string, (agent: string, from: string) => string> = {
   "task.overdue": (agent) => `A task in one of ${agent}'s plans is overdue.`,
   follow_up: (agent) => `A follow-up ${agent} scheduled is due.`,
   handoff: (agent, from) => `${from} left a handoff on a plan ${agent} is part of.`,
+  "agent.unfrozen": (agent) => `${agent}'s owner unfroze it.`,
 };
 
 export function describeEvent(event: NotificationEvent): string {
@@ -348,8 +356,9 @@ export async function waitForNotifications(
   agent: Agent,
   after: number | undefined,
   seconds: number,
-  signal?: AbortSignal,
+  options: { signal?: AbortSignal | undefined; tokenId?: string | undefined } = {},
 ): Promise<NotificationFeed> {
+  const { signal, tokenId } = options;
   const deadline = Date.now() + seconds * 1000;
   const handle = formatHandle(agent.handle);
   let wakes = 0;
@@ -357,7 +366,8 @@ export async function waitForNotifications(
   const unsubscribe = subscribeToOwner(agent.ownerId, (event) => {
     if (event.type !== "ledger") return;
     const type = event.event.type;
-    if (event.agent !== handle || typeof type !== "string" || !INBOX_EVENT_NAMES.has(type)) return;
+    if (event.agent !== handle || typeof type !== "string") return;
+    if (!INBOX_EVENT_NAMES.has(type) && !WAIT_ENDING_EVENTS.has(type)) return;
     wakes += 1;
     wake();
   });
@@ -368,7 +378,8 @@ export async function waitForNotifications(
 
   try {
     let cursor = after;
-    for (;;) {
+    for (let round = 0; ; round += 1) {
+      if (round > 0) await assertCredentialLive(agent.id, tokenId);
       const seen = wakes;
       const feed = await listNotifications(agent, cursor);
       cursor ??= feed.cursor;

@@ -131,13 +131,24 @@ export async function createSession(
   return { sessionToken, expiresAt };
 }
 
-export async function findOwnerBySession(token: string): Promise<Owner | null> {
+export type OwnerSession = { id: string; createdAt: Date; elevatedUntil: Date | null };
+
+export async function findOwnerSession(
+  token: string,
+): Promise<{ owner: Owner; session: OwnerSession } | null> {
   const [row] = await db
-    .select({ owner: owners })
+    .select({
+      owner: owners,
+      session: {
+        id: sessions.id,
+        createdAt: sessions.createdAt,
+        elevatedUntil: sessions.elevatedUntil,
+      },
+    })
     .from(sessions)
     .innerJoin(owners, eq(owners.id, sessions.ownerId))
     .where(and(eq(sessions.tokenHash, sha256(token)), gt(sessions.expiresAt, new Date())));
-  return row?.owner ?? null;
+  return row ?? null;
 }
 
 export async function revokeSession(token: string): Promise<void> {

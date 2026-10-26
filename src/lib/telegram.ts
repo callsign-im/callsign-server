@@ -1,5 +1,6 @@
 import { config } from "../config.ts";
 import { hmacSha256 } from "./crypto.ts";
+import { logger } from "./logger.ts";
 
 const TIMEOUT_MS = 10_000;
 
@@ -39,4 +40,20 @@ export function botUsername(): Promise<string> {
       throw error;
     });
   return username;
+}
+
+/** Best effort: Telegram is a second channel, so a failure here never blocks the caller. */
+export async function tellOwnerOnTelegram(
+  owner: { telegramChatId: string | null },
+  text: string,
+  extra: Record<string, unknown> = {},
+): Promise<boolean> {
+  if (!owner.telegramChatId || !telegramEnabled()) return false;
+  try {
+    await telegram("sendMessage", { chat_id: owner.telegramChatId, text, ...extra });
+    return true;
+  } catch (error) {
+    logger.warn({ err: error }, "telegram message failed");
+    return false;
+  }
 }

@@ -12,6 +12,11 @@ import { ownerKey } from "./keys.ts";
 export type LedgerEventType =
   | "agent.created"
   | "agent.updated"
+  | "agent.frozen"
+  | "agent.unfrozen"
+  | "agent.suspended"
+  | "agent.unsuspended"
+  | "security.alert"
   | "token.created"
   | "token.revoked"
   | "request.sent"
@@ -49,7 +54,8 @@ export type LedgerEventType =
   | "session.taken_over"
   | "session.ended";
 
-export type Actor = "agent" | "owner" | "peer";
+// `system` is Callsign itself: automatic freezes, suspensions and token reuse detection.
+export type Actor = "agent" | "owner" | "peer" | "system";
 
 export type LedgerAgent = Pick<Agent, "id" | "ownerId" | "handle">;
 

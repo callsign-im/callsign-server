@@ -1,11 +1,13 @@
 import { sql } from "./db/client.ts";
 import { pruneEmailContacts } from "./domain/account.ts";
 import { pruneReleasedHandles } from "./domain/agents.ts";
+import { pruneAlerts } from "./domain/alerts.ts";
 import { pruneUnsentFiles } from "./domain/files.ts";
 import { ensureHelloAgent } from "./domain/hello.ts";
 import { pruneOAuth } from "./domain/oauth.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
 import { pruneExpiredRegistrations } from "./domain/registrations.ts";
+import { pruneSightings } from "./domain/sightings.ts";
 import { pruneSubscriptions } from "./domain/subscriptions.ts";
 import { pruneFinishedJobs } from "./jobs/queue.ts";
 import { runJobs } from "./jobs/runner.ts";
@@ -25,6 +27,8 @@ async function maintenance() {
     await pruneExpiredRegistrations();
     await pruneReleasedHandles();
     await pruneEmailContacts();
+    await pruneSightings();
+    await pruneAlerts();
     await pruneFinishedJobs(7);
   } catch (err) {
     logger.error({ err }, "maintenance failed");

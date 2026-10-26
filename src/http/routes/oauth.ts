@@ -135,6 +135,7 @@ export const oauthRoutes = new Hono<AppEnv>()
     const input = await parseBody(c, decisionBody);
     const redirectTo = await decideAuthorization(
       c.get("owner"),
+      c.get("session"),
       id,
       getCookie(c, NONCE_COOKIE),
       input,

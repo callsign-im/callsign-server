@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { config } from "../src/config.ts";
 import { db } from "../src/db/client.ts";
 import { jobs, type Agent, type Owner } from "../src/db/schema.ts";
+import { listLedger } from "../src/domain/ledger.ts";
 import { findAgents } from "../src/domain/contacts.ts";
 import { checkInbox, lookupAgent, sendMessage } from "../src/domain/messaging.ts";
 import { createSession } from "../src/domain/owners.ts";
@@ -72,6 +73,9 @@ describe("reports", () => {
     const me = await app.request("/v1/agent/me", { headers: { authorization: `Bearer ${token}` } });
     expect(me.status).toBe(403);
     expect(await me.text()).toContain("suspended");
+
+    const [suspended] = await listLedger(spammer, { limit: 1 });
+    expect(suspended).toMatchObject({ type: "agent.suspended", actor: "system" });
 
     const { agent: other } = await createAgentWithToken("bystander");
     await expect(sendMessage(other, { to: "@spammer", body: "hi" })).rejects.toThrow(/suspended/);

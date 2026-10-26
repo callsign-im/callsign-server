@@ -37,9 +37,11 @@ import { connectInvitations } from "../../domain/invitations.ts";
 import { answerQuestion, listOwnerQuestions } from "../../domain/questions.ts";
 import { decideContact, getConversation, listConversations } from "../../domain/messaging.ts";
 import { ownerAccountView, updateOwner } from "../../domain/owners.ts";
+import { assertStepUp } from "../../domain/passkeys.ts";
 import { listPlans, updateTask } from "../../domain/plans.ts";
 import { createTelegramLink, unlinkTelegram } from "../../domain/telegram.ts";
 import { isAdmin, reportAgent } from "../../domain/reports.ts";
+import { tokenUsage } from "../../domain/sightings.ts";
 import { deleteSubscription, listSubscriptions } from "../../domain/subscriptions.ts";
 import { testWake, WAKE_KINDS, wakeFields } from "../../domain/wake.ts";
 import {
@@ -55,7 +57,7 @@ import {
 } from "../../domain/live-sessions.ts";
 import { subscribeToOwner } from "../../lib/events.ts";
 import { checkInPrompt, customInstructions, memoryNote, wakePrompt } from "../../mcp/guide.ts";
-import { clearSessionCookie, requireOwner } from "../auth.ts";
+import { clearSessionCookie, requireOwner, requireStepUp } from "../auth.ts";
 import { downloadResponse, pageQuery, parseBody, parseWith, type AppEnv } from "../context.ts";
 import { reportBody, taskChangeBody } from "./agent.ts";
 import { answerBody } from "./public.ts";
@@ -95,7 +97,7 @@ const updateAgentBody = z.object({
     .optional(),
 });
 
-async function detailView(agent: Agent) {
+export async function detailView(agent: Agent) {
   return { ...(await ownerView(agent)), emailAddress: bridgeAddress(agent) };
 }
 
@@ -223,7 +225,7 @@ export const ownerRoutes = new Hono<AppEnv>()
     await unlinkTelegram(c.get("owner"));
     return c.body(null, 204);
   })
-  .delete("/v1/me", async (c) => {
+  .delete("/v1/me", requireStepUp, async (c) => {
     await deleteAccount(c.get("owner"));
     clearSessionCookie(c);
     return c.body(null, 204);
@@ -251,6 +253,17 @@ export const ownerRoutes = new Hono<AppEnv>()
   .patch("/v1/agents/:handle", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     const { wake, ...settings } = await parseBody(c, updateAgentBody);
+    // Pointing wake-ups somewhere new or changing the agent's rules is worth a passkey check;
+    // turning them off and resending unchanged values isn't.
+    const redirects = (next: string | null | undefined, current: string | null) =>
+      typeof next === "string" && next !== current;
+    const sensitive =
+      Boolean(wake) ||
+      redirects(settings.webhookUrl, agent.webhookUrl) ||
+      redirects(settings.notifyEmail, agent.notifyEmail) ||
+      (settings.rules !== undefined &&
+        (settings.rules?.trim() || null) !== (await agentRules(agent)));
+    if (sensitive) await assertStepUp(c.get("owner").id, c.get("session"));
     const updated = await updateAgent(agent, {
       ...settings,
       wake: wake === undefined ? undefined : await wakeFields(agent, wake),
@@ -318,16 +331,22 @@ export const ownerRoutes = new Hono<AppEnv>()
     await deleteSubscription(agent, parseWith(z.string().max(64), c.req.param("id")));
     return c.body(null, 204);
   })
-  .delete("/v1/agents/:handle", async (c) => {
+  .delete("/v1/agents/:handle", requireStepUp, async (c) => {
     await deleteAgent(await getOwnedAgent(c.get("owner").id, c.req.param("handle")));
     return c.body(null, 204);
   })
   .get("/v1/agents/:handle/tokens", async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     const tokens = await listAgentTokens(agent.id);
-    return c.json({ tokens: tokens.map(tokenView) });
+    const usage = await tokenUsage(
+      agent,
+      tokens.map((token) => token.id),
+    );
+    return c.json({
+      tokens: tokens.map((token) => ({ ...tokenView(token), usage: usage.get(token.id) ?? null })),
+    });
   })
-  .post("/v1/agents/:handle/tokens", async (c) => {
+  .post("/v1/agents/:handle/tokens", requireStepUp, async (c) => {
     const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
     const { name } = await parseBody(c, z.object({ name: z.string().max(80).default("Default") }));
     const { token, record } = await createAgentToken(agent, name);

@@ -7,6 +7,7 @@ import { logger } from "../lib/logger.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
 import { redis } from "../lib/redis.ts";
 import { botUsername, telegram, telegramEnabled, telegramWebhookSecret } from "../lib/telegram.ts";
+import { acknowledgeAlert, alertForTelegram, freezeFromAlert } from "./alerts.ts";
 import { AppError } from "./errors.ts";
 import { formatHandle } from "./handles.ts";
 import { ownerKey } from "./keys.ts";
@@ -111,6 +112,53 @@ export async function sendQuestionToTelegram({ questionId }: { questionId: strin
   await redis.set(questionKey(chatId, sent.message_id), questionId, "EX", QUESTION_TTL_SECONDS);
 }
 
+export async function sendAlertToTelegram({ alertId }: { alertId: string }) {
+  if (!telegramEnabled()) return;
+  const found = await alertForTelegram(alertId);
+  if (!found) return;
+  const { chatId, view } = found;
+  const name = view.agent ?? "your agent";
+  const { ip, network } = view.details;
+  const text = [
+    view.title,
+    "",
+    view.description,
+    ...(ip ? [`Address: ${ip}${network ? ` (${network})` : ""}`] : []),
+    "",
+    `If it wasn't you, freeze ${name}: every call it makes is refused until you unfreeze it.`,
+  ].join("\n");
+  await say(chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: `Freeze ${name}`, callback_data: `fz:${alertId}` },
+          { text: "It was me", callback_data: `me:${alertId}` },
+        ],
+      ],
+    },
+  });
+}
+
+async function actOnAlert(chatId: string, alertId: string, action: "fz" | "me") {
+  const owner = await ownerByChat(chatId);
+  if (!owner) return { ok: false, text: "This chat isn't connected to Callsign anymore." } as const;
+  try {
+    if (action === "fz") {
+      const agent = await freezeFromAlert(owner, alertId, "telegram");
+      return {
+        ok: true,
+        toast: "Frozen.",
+        text: `Frozen. Unfreeze ${formatHandle(agent.handle)} from your Callsign dashboard when it's safe.`,
+      } as const;
+    }
+    await acknowledgeAlert(owner, alertId, "telegram");
+    return { ok: true, toast: "Got it.", text: "Marked as you." } as const;
+  } catch (error) {
+    if (error instanceof AppError) return { ok: false, text: error.message } as const;
+    throw error;
+  }
+}
+
 async function answerFromChat(chatId: string, questionId: string, reply: Reply) {
   const owner = await ownerByChat(chatId);
   if (!owner) {
@@ -150,6 +198,24 @@ async function onStart(chatId: string, code: string) {
 
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
   const callback = update.callback_query;
+  const [, alertAction, alertId] = /^(fz|me):([0-9a-f-]{36})$/.exec(callback?.data ?? "") ?? [];
+  if (callback && callback.message && alertId && (alertAction === "fz" || alertAction === "me")) {
+    const { message } = callback;
+    const chatId = String(message.chat.id);
+    const outcome = await actOnAlert(chatId, alertId, alertAction);
+    await telegram("answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: outcome.ok ? outcome.toast : outcome.text,
+    });
+    if (outcome.ok) {
+      await telegram("editMessageText", {
+        chat_id: chatId,
+        message_id: message.message_id,
+        text: `${message.text ?? ""}\n\n${outcome.text}`,
+      });
+    }
+    return;
+  }
   if (callback) {
     const [, questionId, index] = /^answer:([0-9a-f-]{36}):(\d)$/.exec(callback.data ?? "") ?? [];
     const message = callback.message;

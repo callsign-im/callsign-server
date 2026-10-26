@@ -17,6 +17,7 @@ import { oauthRoutes } from "./routes/oauth.ts";
 import { ownerRoutes } from "./routes/owner.ts";
 import { publicRoutes } from "./routes/public.ts";
 import { registrationRoutes } from "./routes/registration.ts";
+import { securityRoutes } from "./routes/security.ts";
 
 const appOrigin = new URL(config.APP_URL).origin;
 
@@ -89,6 +90,7 @@ export function createApp() {
   app.route("/", agentRoutes);
   app.route("/", mcpRoutes);
   app.route("/", ownerRoutes);
+  app.route("/", securityRoutes);
   app.route("/", adminRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "Route not found." } }, 404));

@@ -16,6 +16,26 @@ const schema = z.object({
   KMS_KEY_ID: z.string().min(1).optional(),
   ENCRYPTION_KEY: z.base64().optional(),
   ALLOW_PRIVATE_WEBHOOKS: z.stringbool().default(false),
+  // Passkeys are bound to this domain forever. Defaults to the dashboard's host.
+  WEBAUTHN_RP_ID: z
+    .string()
+    .optional()
+    .transform((id) => id?.trim().toLowerCase() || undefined),
+  WEBAUTHN_RP_NAME: z.string().default("Callsign"),
+  WEBAUTHN_EXTRA_ORIGINS: z
+    .string()
+    .default("")
+    .transform((raw) =>
+      raw
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ),
+  // A MaxMind-format ASN database (GeoLite2-ASN or DB-IP ASN Lite). Without it, networks are /24 or /48 prefixes.
+  ASN_DATABASE: z
+    .string()
+    .optional()
+    .transform((path) => path || undefined),
   SUPPORT_EMAIL: z.email().optional(),
   TELEGRAM_BOT_TOKEN: z
     .string()

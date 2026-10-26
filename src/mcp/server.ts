@@ -26,8 +26,13 @@ import { pageUrl } from "../domain/pages.ts";
 import { AppError } from "../domain/errors.ts";
 import { MAX_ATTACHMENTS, MAX_FILE_BYTES, readFile, uploadFile } from "../domain/files.ts";
 import {
-  createGroup,
-  inviteToGroup,
+  agentCreateGroup,
+  agentInvitePerson,
+  agentInviteToGroup,
+  agentSendMessage,
+  type AgentContext,
+} from "../domain/guard.ts";
+import {
   leaveGroup,
   listGroups,
   MAX_GROUP_MEMBERS,
@@ -44,7 +49,6 @@ import {
   type HandoffView,
 } from "../domain/handoffs.ts";
 import type { OwnerSignals } from "../domain/identity.ts";
-import { invitePerson } from "../domain/invitations.ts";
 import { serializeLedgerEvent } from "../domain/ledger.ts";
 import {
   decideContact,
@@ -54,7 +58,6 @@ import {
   MAX_WAIT_SECONDS,
   PENDING_MESSAGE_LIMIT,
   readInbox,
-  sendMessage,
   UNTRUSTED_NOTICE,
   waitForInbox,
   type Acceptance,
@@ -153,8 +156,17 @@ function describeSend(sent: SendResult): string {
   return `${describeStatus(sent)} ${sent.to} hasn't been active in the last 15 minutes, so a reply may take a while: check your inbox later instead of waiting for it.`;
 }
 
+// Untrusted text goes inside a tag, so it must not be able to close that tag early.
+function escapeTag(text: string, tag: "message" | "file"): string {
+  return text.replace(new RegExp(`</(${tag})`, "gi"), "<\\/$1");
+}
+
 function escapeBody(text: string): string {
-  return text.replace(/<\/message/gi, "<\\/message");
+  return escapeTag(text, "message");
+}
+
+function escapeAttribute(text: string): string {
+  return text.replace(/[&"<>]/g, (char) => `&#${char.charCodeAt(0)};`);
 }
 
 function formatSize(bytes: number): string {
@@ -541,15 +553,13 @@ function registerEvents(server: McpServer, agent: Agent, tokenId: string) {
   );
 }
 
-export type McpSession = {
-  agent: Agent;
-  tokenId: string;
-  client: string;
+export type McpSession = AgentContext & {
   rules: string | null;
   handoff: HandoffView | null;
 };
 
-export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSession): McpServer {
+export function buildMcpServer(session: McpSession): McpServer {
+  const { agent, tokenId, client, rules, handoff } = session;
   const server = new McpServer(
     { name: SERVER_NAME, title: "Callsign", version: VERSION },
     {
@@ -744,7 +754,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
     },
     ({ to, body, idempotency_key, attachments }) =>
       run("send_message", async () => {
-        const sent = await sendMessage(agent, {
+        const sent = await agentSendMessage(session, {
           to,
           body,
           idempotencyKey: idempotency_key,
@@ -1337,7 +1347,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
     },
     ({ name, members, note }) =>
       run("create_group", async () => {
-        const group = await createGroup(agent, { name, members, note });
+        const group = await agentCreateGroup(session, { name, members, note });
         return result(
           `Created ${group.name}. Members: ${describeMembers(group)}. Invited agents join once they accept.`,
           group,
@@ -1363,7 +1373,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
     },
     ({ group, members, note }) =>
       run("invite_to_group", async () => {
-        const updated = await inviteToGroup(agent, group, { handles: members, note });
+        const updated = await agentInviteToGroup(session, group, { handles: members, note });
         return result(`Invited. ${updated.name} members: ${describeMembers(updated)}.`, updated);
       }),
   );
@@ -1521,7 +1531,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
         }
         if (TEXT_TYPES.test(file.mimeType) && content.length <= MAX_TEXT_RESULT) {
           return result(
-            `${UNTRUSTED_NOTICE}\n<file name="${escapeBody(file.name)}">\n${escapeBody(content.toString("utf8"))}\n</file>`,
+            `${UNTRUSTED_NOTICE}\n<file name="${escapeAttribute(file.name)}">\n${escapeTag(content.toString("utf8"), "file")}\n</file>`,
             file,
           );
         }
@@ -1560,7 +1570,7 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
     },
     ({ email, note }) =>
       run("invite_person", async () => {
-        const sent = await invitePerson(agent, { email, note });
+        const sent = await agentInvitePerson(session, { email, note });
         return result(
           `Invitation sent to ${sent.sentTo}. If they join, they'll reach you without a message request.`,
           sent,

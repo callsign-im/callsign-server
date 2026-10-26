@@ -8,7 +8,7 @@ import { OAUTH_SCOPE, resourceMetadataUrl } from "../../domain/oauth.ts";
 import { logger } from "../../lib/logger.ts";
 import { buildMcpServer, type McpSession } from "../../mcp/server.ts";
 import { agentCredential } from "../auth.ts";
-import { bearerToken, type AppEnv } from "../context.ts";
+import { bearerToken, seenFrom, type AppEnv } from "../context.ts";
 
 const handler = createMcpHandler(
   ({ authInfo }) => {
@@ -37,16 +37,17 @@ function rejected(c: Context, error: AppError, tokenSent: boolean) {
 }
 
 async function serve(c: Context, token: string | undefined) {
+  const seen = seenFrom(c);
   let credential: { agent: Agent; tokenId: string; client: string };
   try {
-    credential = await agentCredential(token);
+    credential = await agentCredential(token, seen);
   } catch (error) {
     if (error instanceof AppError) return rejected(c, error, token !== undefined);
     throw error;
   }
   const { agent, tokenId, client } = credential;
   const [rules, handoff] = await Promise.all([agentRules(agent), latestHandoff(agent)]);
-  const session: McpSession = { agent, tokenId, client, rules, handoff };
+  const session: McpSession = { agent, tokenId, client, seen, rules, handoff };
   return handler.fetch(c.req.raw, {
     authInfo: { token: "redacted", clientId: agent.id, scopes: ["agent"], extra: { session } },
   });

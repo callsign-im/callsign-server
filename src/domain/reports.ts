@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { uuidv7 } from "../lib/ids.ts";
 import { config } from "../config.ts";
 import { db, type Tx } from "../db/client.ts";
@@ -6,6 +6,7 @@ import {
   agents,
   conversationMembers,
   conversations,
+  eventSubscriptions,
   messages,
   owners,
   reports,
@@ -21,6 +22,7 @@ import { AppError } from "./errors.ts";
 import { formatGroupName } from "./groups.ts";
 import { formatHandle, normalizeHandle } from "./handles.ts";
 import { conversationKey, ownerKey } from "./keys.ts";
+import { appendLedgerEvent, broadcast, type RecordedEvent } from "./ledger.ts";
 import { decideContact } from "./messaging.ts";
 
 export const REPORT_REASONS = ["spam", "scam", "harassment", "impersonation", "other"] as const;
@@ -128,8 +130,8 @@ async function escalate(reported: Agent, report: Report): Promise<void> {
     );
   const reporters = row?.reporters ?? 0;
   const suspend = reporters >= AUTO_SUSPEND_REPORTERS && !reported.suspendedAt;
-  await db.transaction(async (tx) => {
-    if (suspend) await suspendAgent(tx, reported);
+  const suspended = await db.transaction(async (tx) => {
+    const suspended = suspend ? await suspendAgent(tx, reported) : null;
     const url = new URL("/dashboard/admin", config.APP_URL).toString();
     for (const email of config.ADMIN_EMAILS) {
       await enqueue(tx, "email.report", {
@@ -141,16 +143,19 @@ async function escalate(reported: Agent, report: Report): Promise<void> {
         url,
       });
     }
+    return suspended;
   });
+  if (suspended) await broadcast([suspended]);
 }
 
-async function suspendAgent(tx: Tx, agent: Agent): Promise<void> {
+async function suspendAgent(tx: Tx, agent: Agent): Promise<RecordedEvent | null> {
   const [updated] = await tx
     .update(agents)
     .set({ suspendedAt: new Date() })
     .where(and(eq(agents.id, agent.id), isNull(agents.suspendedAt)))
     .returning({ id: agents.id });
-  if (!updated) return;
+  if (!updated) return null;
+  await tx.delete(eventSubscriptions).where(eq(eventSubscriptions.agentId, agent.id));
   const [owner] = await tx.select().from(owners).where(eq(owners.id, agent.ownerId));
   if (owner) {
     await enqueue(tx, "email.suspended", {
@@ -158,20 +163,32 @@ async function suspendAgent(tx: Tx, agent: Agent): Promise<void> {
       handle: formatHandle(agent.handle),
     });
   }
+  return appendLedgerEvent(tx, agent, { type: "agent.suspended", actor: "system", data: {} });
+}
+
+async function unsuspendAgent(tx: Tx, agent: Agent): Promise<RecordedEvent | null> {
+  const [updated] = await tx
+    .update(agents)
+    .set({ suspendedAt: null })
+    .where(and(eq(agents.id, agent.id), isNotNull(agents.suspendedAt)))
+    .returning({ id: agents.id });
+  if (!updated) return null;
+  return appendLedgerEvent(tx, agent, { type: "agent.unsuspended", actor: "system", data: {} });
 }
 
 export async function setSuspended(rawHandle: string, suspended: boolean): Promise<AdminAgent> {
   const agent = await findAgentByHandle(rawHandle);
   if (!agent)
     throw new AppError("not_found", `No agent is registered as ${formatHandle(rawHandle)}.`);
-  await db.transaction(async (tx) => {
-    if (suspended) await suspendAgent(tx, agent);
-    else await tx.update(agents).set({ suspendedAt: null }).where(eq(agents.id, agent.id));
+  const recorded = await db.transaction(async (tx) => {
+    const recorded = suspended ? await suspendAgent(tx, agent) : await unsuspendAgent(tx, agent);
     await tx
       .update(reports)
       .set({ status: suspended ? "actioned" : "dismissed", resolvedAt: new Date() })
       .where(and(eq(reports.agentId, agent.id), eq(reports.status, "open")));
+    return recorded;
   });
+  if (recorded) await broadcast([recorded]);
   const view = (await adminAgents([agent.id])).get(agent.id);
   if (!view) throw new Error("agent disappeared while changing its suspension");
   return view;

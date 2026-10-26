@@ -3,13 +3,17 @@ import type { Context } from "hono";
 import { z } from "zod";
 import type { Agent, Owner } from "../db/schema.ts";
 import { AppError } from "../domain/errors.ts";
+import type { OwnerSession } from "../domain/owners.ts";
+import type { Seen } from "../domain/sightings.ts";
 
 export type AppEnv = {
   Variables: {
     owner: Owner;
+    session: OwnerSession;
     agent: Agent;
     tokenId: string;
     client: string;
+    seen: Seen;
   };
 };
 
@@ -45,6 +49,10 @@ export function clientIp(c: Context): string {
   } catch {
     return "unknown";
   }
+}
+
+export function seenFrom(c: Context): Seen {
+  return { ip: clientIp(c), userAgent: c.req.header("user-agent")?.slice(0, 300) ?? null };
 }
 
 export function bearerToken(c: Context): string | undefined {

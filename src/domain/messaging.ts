@@ -28,6 +28,7 @@ import {
 import { subscribeToOwner } from "../lib/events.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
+import { assertCredentialLive, WAIT_ENDING_EVENTS } from "./access.ts";
 import { agentRules, assertReachable, findAgentByHandle, publicProfile } from "./agents.ts";
 import { contactsByAgent, type ContactRecord } from "./contacts.ts";
 import {
@@ -817,7 +818,8 @@ export async function waitForInbox(
   const unsubscribe = subscribeToOwner(agent.ownerId, (event) => {
     if (event.type !== "ledger") return;
     const type = event.event.type;
-    if (event.agent !== handle || typeof type !== "string" || !WAKING_EVENTS.has(type)) return;
+    if (event.agent !== handle || typeof type !== "string") return;
+    if (!WAKING_EVENTS.has(type) && !WAIT_ENDING_EVENTS.has(type)) return;
     wakes += 1;
     wake();
   });
@@ -826,7 +828,8 @@ export async function waitForInbox(
   const release = await trackListening(agent.id);
 
   try {
-    for (;;) {
+    for (let round = 0; ; round += 1) {
+      if (round > 0) await assertCredentialLive(agent.id, tokenId);
       const seen = wakes;
       const inbox =
         since === undefined ? await readInbox(agent, tokenId) : await inboxSince(agent, since);
