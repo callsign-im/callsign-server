@@ -23,6 +23,8 @@ locals {
     KMS_KEY_ID     = aws_kms_key.data.arn
     API_DOMAIN     = local.api_domain_name
     ADMIN_EMAILS   = join(",", var.admin_emails)
+    # Passkeys are bound to the root domain, so they keep working wherever the dashboard lives.
+    WEBAUTHN_RP_ID = var.domain_name
     # Empty values turn Telegram and the email bridge off.
     TELEGRAM_BOT_TOKEN    = var.telegram_bot_token == null ? "" : var.telegram_bot_token
     EMAIL_BRIDGE_DOMAIN   = var.email_bridge_domain == null ? "" : var.email_bridge_domain

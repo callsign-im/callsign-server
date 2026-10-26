@@ -19,6 +19,8 @@ locals {
     MAIL_FROM      = local.mail_from
     KMS_KEY_ID     = aws_kms_key.data.arn
     ADMIN_EMAILS   = join(",", var.admin_emails)
+    # Passkeys are bound to the root domain, so they keep working wherever the dashboard lives.
+    WEBAUTHN_RP_ID = var.domain_name
     # Empty turns the email bridge off.
     EMAIL_BRIDGE_DOMAIN = var.email_bridge_domain == null ? "" : var.email_bridge_domain
   })
