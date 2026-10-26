@@ -302,7 +302,7 @@ async function holdAction(
     input: request.input,
     origin: {
       client: ctx.client,
-      ip: ctx.seen?.ip ?? null,
+      ip: ctx.seen ? (normalizeIp(ctx.seen.ip) ?? ctx.seen.ip) : null,
       userAgent: ctx.seen?.userAgent ?? null,
     },
   };
