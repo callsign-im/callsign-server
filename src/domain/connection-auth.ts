@@ -176,7 +176,13 @@ export async function startConnectionAuth(connection: McpConnection): Promise<UR
   const provider = new ConnectionOAuth(connection.id, await connectionKey(connection));
   try {
     const result = await auth(provider, { serverUrl: connection.serverUrl, fetchFn: toolFetch });
-    return result === "REDIRECT" ? provider.authorizationUrl : null;
+    if (result !== "REDIRECT") return null;
+    const url = provider.authorizationUrl;
+    // The dashboard sends the owner's browser here, so only web addresses are allowed.
+    const web =
+      url?.protocol === "https:" || (config.ALLOW_PRIVATE_TOOLS && url?.protocol === "http:");
+    if (!url || !web) throw new Error("its authorization server gave an unsafe address");
+    return url;
   } catch (error) {
     throw new AppError(
       "invalid_input",
