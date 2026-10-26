@@ -76,6 +76,9 @@ export type JobPayloads = {
   "sighting.check": { sightingId: string };
   "alert.email": { alertId: string; freezeUrl: string };
   "alert.telegram": { alertId: string };
+  "hold.notify": { holdId: string; approveUrl: string };
+  "hold.release": { agentId: string };
+  "hold.expire": { holdId: string };
 };
 
 export type JobKind = keyof JobPayloads;

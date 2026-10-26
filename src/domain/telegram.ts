@@ -10,6 +10,7 @@ import { botUsername, telegram, telegramEnabled, telegramWebhookSecret } from ".
 import { acknowledgeAlert, alertForTelegram, freezeFromAlert } from "./alerts.ts";
 import { AppError } from "./errors.ts";
 import { formatHandle } from "./handles.ts";
+import { decideHoldFromTelegram, holdForApprover } from "./holds.ts";
 import { ownerKey } from "./keys.ts";
 import { answerQuestion, openQuestion, type Reply } from "./questions.ts";
 
@@ -139,6 +140,54 @@ export async function sendAlertToTelegram({ alertId }: { alertId: string }) {
   });
 }
 
+export async function sendHoldToTelegram({ holdId }: { holdId: string }) {
+  if (!telegramEnabled()) return;
+  const found = await holdForApprover(holdId);
+  const chatId = found?.owner.telegramChatId;
+  if (!found || !chatId) return;
+  const { view, passkey, dashboard } = found;
+  const text = [
+    `${view.agent} wants to do this:`,
+    "",
+    view.summary,
+    "",
+    `Your rules hold it because ${view.why.join(" and ")}.`,
+  ].join("\n");
+  await say(chatId, text, {
+    reply_markup: {
+      inline_keyboard: passkey
+        ? [
+            [{ text: "Decline", callback_data: `hd:${holdId}` }],
+            [{ text: "Approve in the dashboard", url: dashboard }],
+          ]
+        : [
+            [
+              { text: "Approve", callback_data: `ha:${holdId}` },
+              { text: "Decline", callback_data: `hd:${holdId}` },
+            ],
+          ],
+    },
+  });
+}
+
+async function actOnHold(chatId: string, holdId: string, action: "ha" | "hd") {
+  const owner = await ownerByChat(chatId);
+  if (!owner) return { ok: false, text: "This chat isn't connected to Callsign anymore." } as const;
+  try {
+    const decided = await decideHoldFromTelegram(
+      owner,
+      holdId,
+      action === "ha" ? "approve" : "deny",
+    );
+    return action === "ha"
+      ? ({ ok: true, toast: "Approved.", text: `Approved. ${decided.agent} carries on.` } as const)
+      : ({ ok: true, toast: "Declined.", text: `Declined. ${decided.agent} was told.` } as const);
+  } catch (error) {
+    if (error instanceof AppError) return { ok: false, text: error.message } as const;
+    throw error;
+  }
+}
+
 async function actOnAlert(chatId: string, alertId: string, action: "fz" | "me") {
   const owner = await ownerByChat(chatId);
   if (!owner) return { ok: false, text: "This chat isn't connected to Callsign anymore." } as const;
@@ -198,11 +247,14 @@ async function onStart(chatId: string, code: string) {
 
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
   const callback = update.callback_query;
-  const [, alertAction, alertId] = /^(fz|me):([0-9a-f-]{36})$/.exec(callback?.data ?? "") ?? [];
-  if (callback && callback.message && alertId && (alertAction === "fz" || alertAction === "me")) {
+  const [, action, targetId] = /^(fz|me|ha|hd):([0-9a-f-]{36})$/.exec(callback?.data ?? "") ?? [];
+  if (callback && callback.message && action && targetId) {
     const { message } = callback;
     const chatId = String(message.chat.id);
-    const outcome = await actOnAlert(chatId, alertId, alertAction);
+    const outcome =
+      action === "fz" || action === "me"
+        ? await actOnAlert(chatId, targetId, action)
+        : await actOnHold(chatId, targetId, action as "ha" | "hd");
     await telegram("answerCallbackQuery", {
       callback_query_id: callback.id,
       text: outcome.ok ? outcome.toast : outcome.text,

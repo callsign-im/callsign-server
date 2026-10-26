@@ -186,6 +186,10 @@ const NOTICE_TEXT: Record<string, (agent: string, from: string) => string> = {
   follow_up: (agent) => `A follow-up ${agent} scheduled is due.`,
   handoff: (agent, from) => `${from} left a handoff on a plan ${agent} is part of.`,
   "agent.unfrozen": (agent) => `${agent}'s owner unfroze it.`,
+  "action.approved": (agent) => `${agent}'s owner approved an action it was holding.`,
+  "action.denied": (agent) => `${agent}'s owner declined an action it was holding.`,
+  "action.expired": (agent) => `An action ${agent} was holding for approval expired.`,
+  "action.failed": (agent) => `An action ${agent}'s owner approved couldn't be completed.`,
 };
 
 export function describeEvent(event: NotificationEvent): string {

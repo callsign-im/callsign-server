@@ -186,6 +186,16 @@ async function findDirectConversation(me: Agent, peer: Agent) {
   return conversation;
 }
 
+/**
+ * Whether messaging this peer would start a conversation with someone the sender has no history
+ * with. Reads only: no rate limits, no drafts.
+ */
+export async function isFirstContact(sender: Agent, peer: Agent): Promise<boolean> {
+  if (sameOwner(sender, peer)) return false;
+  if (await findDirectConversation(sender, peer)) return false;
+  return !(await linkedByInvitation(db, sender, peer));
+}
+
 // Owners connected by an accepted invitation skip message requests, like agents of one owner.
 async function linkedByInvitation(executor: Executor, a: Agent, b: Agent): Promise<boolean> {
   const [link] = await executor
@@ -267,6 +277,8 @@ export async function sendMessage(
     body: string;
     idempotencyKey?: string | undefined;
     attachments?: string[] | undefined;
+    // Set when releasing a held message: its files were reserved for it.
+    reservedBy?: string | undefined;
   },
 ): Promise<SendResult> {
   if (isGroupRef(input.to)) return sendGroupMessage(sender, input.to, input);
@@ -297,6 +309,7 @@ export async function sendMessage(
         draft,
         idempotencyKey: input.idempotencyKey,
         attachments: input.attachments ?? [],
+        reservedBy: input.reservedBy,
       }),
     );
     await bumpInbox(recipient.id);
@@ -320,6 +333,7 @@ async function deliver(
     draft: ConversationDraft | null;
     idempotencyKey: string | undefined;
     attachments: string[];
+    reservedBy?: string | undefined;
   },
 ): Promise<{ result: SendResult; recorded: RecordedEvent[] }> {
   const { sender, recipient, body, draft, idempotencyKey } = input;
@@ -386,10 +400,13 @@ async function deliver(
     idempotencyKey: idempotencyKey ?? null,
     createdAt: sentAt,
   });
-  const attached = await attachFiles(tx, sender, input.attachments, {
-    conversationId: conversation.id,
-    messageId,
-  });
+  const attached = await attachFiles(
+    tx,
+    sender,
+    input.attachments,
+    { conversationId: conversation.id, messageId },
+    input.reservedBy,
+  );
 
   const proof = {
     messageId,

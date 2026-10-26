@@ -11,6 +11,14 @@ import {
 } from "../../domain/alerts.ts";
 import { freezeAgent, unfreezeAgent } from "../../domain/freeze.ts";
 import {
+  decideHold,
+  decideHoldByLink,
+  decideHolds,
+  holdLinkView,
+  listHolds,
+  pendingHoldCount,
+} from "../../domain/holds.ts";
+import {
   cancelPasskeyReset,
   cancelPasskeyResetByLink,
   isElevated,
@@ -25,6 +33,7 @@ import {
   stepUpOptions,
   verifyStepUp,
 } from "../../domain/passkeys.ts";
+import { policyPatch, readPolicy, updatePolicy } from "../../domain/policy.ts";
 import { listAgentNetworks, listTokenSightings } from "../../domain/sightings.ts";
 import { requireAppOrigin, requireOwner, requireStepUp } from "../auth.ts";
 import { parseBody, parseWith, type AppEnv } from "../context.ts";
@@ -41,11 +50,59 @@ const credentialJson = z.looseObject({
   response: z.looseObject({}),
 });
 
+const decision = z.enum(["approve", "deny"]);
+
 export const securityRoutes = new Hono<AppEnv>()
   .use("/v1/me/*", requireOwner)
   .use("/v1/agents/*", requireOwner)
   .use("/v1/alerts", requireOwner)
   .use("/v1/alerts/*", requireOwner)
+  .use("/v1/holds", requireOwner)
+  .use("/v1/holds/*", requireOwner)
+  .get("/v1/agents/:handle/policy", async (c) => {
+    const agent = await getOwnedAgent(c.get("owner").id, c.req.param("handle"));
+    return c.json({ policy: readPolicy(agent) });
+  })
+  .patch("/v1/agents/:handle/policy", async (c) => {
+    const owner = c.get("owner");
+    const agent = await getOwnedAgent(owner.id, c.req.param("handle"));
+    const patch = await parseBody(c, policyPatch);
+    const { policy } = await updatePolicy(owner, c.get("session"), agent, patch);
+    return c.json({ policy });
+  })
+  .get("/v1/holds", async (c) => {
+    const owner = c.get("owner");
+    const { status, agent: handle } = parseWith(
+      z.object({
+        status: z.enum(["pending", "all"]).default("pending"),
+        agent: z.string().max(64).optional(),
+      }),
+      c.req.query(),
+    );
+    const agent = handle ? await getOwnedAgent(owner.id, handle) : undefined;
+    const [holds, pending] = await Promise.all([
+      listHolds(owner, { status, ...(agent && { agent }) }),
+      pendingHoldCount(owner.id),
+    ]);
+    return c.json({ holds, pending });
+  })
+  .post("/v1/holds/decide", async (c) => {
+    const body = await parseBody(c, z.object({ ids: z.array(z.uuid()).min(1).max(100), decision }));
+    return c.json(await decideHolds(c.get("owner"), c.get("session"), body.ids, body.decision));
+  })
+  .post("/v1/holds/:id", async (c) => {
+    const { decision: choice } = await parseBody(c, z.object({ decision }));
+    const id = parseWith(z.uuid(), c.req.param("id"));
+    return c.json({ hold: await decideHold(c.get("owner"), c.get("session"), id, choice) });
+  })
+  .get("/v1/hold-links/:token", async (c) =>
+    c.json({ hold: await holdLinkView(parseWith(linkToken, c.req.param("token"))) }),
+  )
+  .post("/v1/hold-links/:token", async (c) => {
+    const { decision: choice } = await parseBody(c, z.object({ decision }));
+    const token = parseWith(linkToken, c.req.param("token"));
+    return c.json({ hold: await decideHoldByLink(token, choice) });
+  })
   .get("/v1/me/passkeys", async (c) => {
     const owner = c.get("owner");
     const session = c.get("session");

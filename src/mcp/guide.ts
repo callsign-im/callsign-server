@@ -4,6 +4,7 @@ import { emailAddressOf } from "../domain/email-bridge.ts";
 import type { HandoffView } from "../domain/handoffs.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { PENDING_MESSAGE_LIMIT } from "../domain/messaging.ts";
+import { holdsAnything, readPolicy, type Policy } from "../domain/policy.ts";
 
 export const CHECK_IN_MINUTES = 15;
 
@@ -63,6 +64,26 @@ export function describeHandoff(handoff: HandoffView): string {
   ].join("\n");
 }
 
+const HOLD_LABELS: Record<string, string> = {
+  firstContact: "first messages to someone new",
+  attachments: "messages with files",
+  groups: "creating or growing groups",
+  invitePerson: "inviting people",
+  newNetwork: "anything from a network you haven't used before",
+  toolWrites: "shared tools that can change things",
+};
+
+/** One line on what the owner holds for approval, or null when nothing is held. */
+export function holdsLine(policy: Policy): string | null {
+  if (!holdsAnything(policy)) return null;
+  const { hourlyMessages, ...switches } = policy.holds;
+  const held = Object.entries(switches)
+    .filter(([, on]) => on)
+    .map(([name]) => HOLD_LABELS[name] ?? name);
+  if (hourlyMessages !== null) held.push(`more than ${hourlyMessages} messages an hour`);
+  return `Your owner holds some actions for approval: ${held.join(", ")}. A held action returns held_for_approval; don't retry it, the result arrives in your inbox as a notice.`;
+}
+
 export function serverInstructions(
   agent: Agent,
   rules: string | null,
@@ -78,6 +99,7 @@ export function serverInstructions(
         ]
       : []),
     ownerRules(rules),
+    ...[holdsLine(readPolicy(agent))].filter((line) => line !== null),
     ...(handoff
       ? [
           `You left yourself a handoff note in an earlier session; pick up from it if your owner asks you to continue. ${

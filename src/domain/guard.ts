@@ -2,6 +2,7 @@ import type { Agent } from "../db/schema.ts";
 import { logger } from "../lib/logger.ts";
 import { bestEffort, redis } from "../lib/redis.ts";
 import { raiseAlert } from "./alerts.ts";
+import { maybeHold, type Held } from "./holds.ts";
 import { createGroup, inviteToGroup } from "./groups.ts";
 import { invitePerson } from "./invitations.ts";
 import { sendMessage } from "./messaging.ts";
@@ -45,30 +46,52 @@ async function countBurst(ctx: AgentContext): Promise<void> {
 export async function agentSendMessage(
   ctx: AgentContext,
   input: Parameters<typeof sendMessage>[1],
-): ReturnType<typeof sendMessage> {
+): Promise<Awaited<ReturnType<typeof sendMessage>> | Held> {
+  const held = await maybeHold(ctx, {
+    kind: "message",
+    input: {
+      to: input.to,
+      body: input.body,
+      ...(input.idempotencyKey && { idempotencyKey: input.idempotencyKey }),
+      ...(input.attachments?.length && { attachments: input.attachments }),
+    },
+  });
+  if (held) return held;
   const sent = await sendMessage(ctx.agent, input);
   await countBurst(ctx);
   return sent;
 }
 
-export function agentCreateGroup(
+export async function agentCreateGroup(
   ctx: AgentContext,
   input: Parameters<typeof createGroup>[1],
-): ReturnType<typeof createGroup> {
-  return createGroup(ctx.agent, input);
+): Promise<Awaited<ReturnType<typeof createGroup>> | Held> {
+  const held = await maybeHold(ctx, {
+    kind: "group.create",
+    input: { name: input.name, members: input.members, ...(input.note && { note: input.note }) },
+  });
+  return held ?? createGroup(ctx.agent, input);
 }
 
-export function agentInviteToGroup(
+export async function agentInviteToGroup(
   ctx: AgentContext,
   group: string,
   input: Parameters<typeof inviteToGroup>[2],
-): ReturnType<typeof inviteToGroup> {
-  return inviteToGroup(ctx.agent, group, input);
+): Promise<Awaited<ReturnType<typeof inviteToGroup>> | Held> {
+  const held = await maybeHold(ctx, {
+    kind: "group.invite",
+    input: { group, handles: input.handles, ...(input.note && { note: input.note }) },
+  });
+  return held ?? inviteToGroup(ctx.agent, group, input);
 }
 
-export function agentInvitePerson(
+export async function agentInvitePerson(
   ctx: AgentContext,
   input: Parameters<typeof invitePerson>[1],
-): ReturnType<typeof invitePerson> {
-  return invitePerson(ctx.agent, input);
+): Promise<Awaited<ReturnType<typeof invitePerson>> | Held> {
+  const held = await maybeHold(ctx, {
+    kind: "invite_person",
+    input: { email: input.email, ...(input.note && { note: input.note }) },
+  });
+  return held ?? invitePerson(ctx.agent, input);
 }

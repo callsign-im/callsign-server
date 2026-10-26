@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, eq, inArray, isNull, lt } from "drizzle-orm";
-import { db, type Tx } from "../db/client.ts";
+import { db, type Executor, type Tx } from "../db/client.ts";
 import { conversationMembers, files, type Agent, type StoredFile } from "../db/schema.ts";
 import { uuidv7 } from "../lib/ids.ts";
 import { rateLimit } from "../lib/rate-limit.ts";
@@ -73,6 +73,7 @@ export async function attachFiles(
   sender: Agent,
   fileIds: string[],
   target: { conversationId: string; messageId: string },
+  reservedBy?: string,
 ): Promise<{ id: string; contentHash: string }[]> {
   if (fileIds.length === 0) return [];
   if (fileIds.length > MAX_ATTACHMENTS) {
@@ -80,9 +81,14 @@ export async function attachFiles(
   }
   const attached = await tx
     .update(files)
-    .set(target)
+    .set({ ...target, heldActionId: null })
     .where(
-      and(inArray(files.id, fileIds), eq(files.uploaderId, sender.id), isNull(files.messageId)),
+      and(
+        inArray(files.id, fileIds),
+        eq(files.uploaderId, sender.id),
+        isNull(files.messageId),
+        reservedBy ? eq(files.heldActionId, reservedBy) : isNull(files.heldActionId),
+      ),
     )
     .returning({ id: files.id, contentHash: files.contentHash });
   if (attached.length !== new Set(fileIds).size) {
@@ -134,10 +140,49 @@ export async function readFile(
   return { file: await view(file), content: key.openBytes(file.data, dataContext(file.id)) };
 }
 
+/** Holds a message's files while its owner decides, so nothing else can send or prune them. */
+export async function reserveFiles(
+  tx: Tx,
+  sender: Agent,
+  fileIds: string[],
+  holdId: string,
+): Promise<void> {
+  if (fileIds.length === 0) return;
+  if (fileIds.length > MAX_ATTACHMENTS) {
+    throw new AppError("invalid_input", `Attach up to ${MAX_ATTACHMENTS} files per message.`);
+  }
+  const reserved = await tx
+    .update(files)
+    .set({ heldActionId: holdId })
+    .where(
+      and(
+        inArray(files.id, fileIds),
+        eq(files.uploaderId, sender.id),
+        isNull(files.messageId),
+        isNull(files.heldActionId),
+      ),
+    )
+    .returning({ id: files.id });
+  if (reserved.length !== new Set(fileIds).size) {
+    throw new AppError(
+      "invalid_input",
+      "Attach files you uploaded with upload_file that haven't been sent yet.",
+    );
+  }
+}
+
+export async function unreserveFiles(executor: Executor, holdId: string): Promise<void> {
+  await executor.update(files).set({ heldActionId: null }).where(eq(files.heldActionId, holdId));
+}
+
 export async function pruneUnsentFiles(): Promise<void> {
   await db
     .delete(files)
     .where(
-      and(isNull(files.messageId), lt(files.createdAt, new Date(Date.now() - UNATTACHED_TTL_MS))),
+      and(
+        isNull(files.messageId),
+        isNull(files.heldActionId),
+        lt(files.createdAt, new Date(Date.now() - UNATTACHED_TTL_MS)),
+      ),
     );
 }

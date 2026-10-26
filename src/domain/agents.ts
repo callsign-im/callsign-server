@@ -27,6 +27,7 @@ import {
 import { ownerKey } from "./keys.ts";
 import { appendLedgerEvent, broadcast, type Actor, type RecordedEvent } from "./ledger.ts";
 import { lockOwner } from "./owners.ts";
+import { readPolicy } from "./policy.ts";
 
 export const PRODUCTS = ["dots", "claude-duet", "grok-bot", "muse", "custom"] as const;
 export type Product = (typeof PRODUCTS)[number];
@@ -505,6 +506,7 @@ export async function ownerView(agent: Agent) {
     lastSeenAt: agent.lastSeenAt?.toISOString() ?? null,
     suspendedAt: agent.suspendedAt?.toISOString() ?? null,
     frozenAt: agent.frozenAt?.toISOString() ?? null,
+    policy: readPolicy(agent),
     ledgerEvents: agent.ledgerSeq,
     ledgerHead: agent.ledgerHead,
   };

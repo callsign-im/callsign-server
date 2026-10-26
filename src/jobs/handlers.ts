@@ -6,11 +6,16 @@ import { deliverBridgeEmail } from "../domain/email-bridge.ts";
 import { receiveBridgeEmail } from "../domain/email-inbound.ts";
 import { fireFollowUp } from "../domain/follow-ups.ts";
 import { helloReply } from "../domain/hello.ts";
+import { emailHold, expireHold, releaseApproved } from "../domain/holds.ts";
 import { describeNotification } from "../domain/notifications.ts";
 import { runPasskeyReset } from "../domain/passkeys.ts";
 import { remindOverdueTask } from "../domain/plans.ts";
 import { checkSighting } from "../domain/sightings.ts";
-import { sendAlertToTelegram, sendQuestionToTelegram } from "../domain/telegram.ts";
+import {
+  sendAlertToTelegram,
+  sendHoldToTelegram,
+  sendQuestionToTelegram,
+} from "../domain/telegram.ts";
 import { deliverEvent, fanOutEvent } from "../domain/subscriptions.ts";
 import { deliverWake } from "../domain/wake.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
@@ -242,4 +247,10 @@ export const handlers: Handlers = {
   "sighting.check": checkSighting,
   "alert.email": sendAlertEmail,
   "alert.telegram": sendAlertToTelegram,
+  async "hold.notify"(payload) {
+    await emailHold(payload);
+    await sendHoldToTelegram(payload);
+  },
+  "hold.release": releaseApproved,
+  "hold.expire": expireHold,
 };

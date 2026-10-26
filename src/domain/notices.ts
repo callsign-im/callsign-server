@@ -20,7 +20,11 @@ export type NoticeKind =
   | "session.taken_over"
   | "session.assigned"
   | "session.ended"
-  | "agent.unfrozen";
+  | "agent.unfrozen"
+  | "action.approved"
+  | "action.denied"
+  | "action.expired"
+  | "action.failed";
 
 export type NoticeView = {
   id: string;
@@ -29,6 +33,7 @@ export type NoticeView = {
   planId: string | null;
   sessionId: string | null;
   task: string | null;
+  holdId: string | null;
   text: string;
   at: string;
 };
@@ -42,6 +47,7 @@ export type NoticeInput = {
   planId: string | null;
   liveSessionId?: string | null;
   taskKey: string | null;
+  heldActionId?: string | null;
   text: string;
   // Who the ledger credits; inferred from actor when omitted.
   actorKind?: Actor;
@@ -65,6 +71,7 @@ export async function createNotice(
     planId: input.planId,
     liveSessionId: input.liveSessionId ?? null,
     taskKey: input.taskKey,
+    heldActionId: input.heldActionId ?? null,
     text: key.seal(input.text, textContext(id)),
   });
   await notify(tx, recipient, { kind: "notice", agentId: recipient.id, noticeId: id });
@@ -79,6 +86,7 @@ export async function createNotice(
       ...(input.planId && { planId: input.planId }),
       ...(input.liveSessionId && { sessionId: input.liveSessionId }),
       ...(input.taskKey && { task: input.taskKey }),
+      ...(input.heldActionId && { holdId: input.heldActionId }),
     },
   });
 }
@@ -101,6 +109,7 @@ async function views(agent: Agent, rows: Notice[]): Promise<NoticeView[]> {
     planId: row.planId,
     sessionId: row.liveSessionId,
     task: row.taskKey,
+    holdId: row.heldActionId,
     text: key.open(row.text, textContext(row.id)) ?? "",
     at: row.createdAt.toISOString(),
   }));

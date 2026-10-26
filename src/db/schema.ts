@@ -130,6 +130,8 @@ export const agents = pgTable(
     lastSeenAt: timestamptz("last_seen_at"),
     suspendedAt: timestamptz("suspended_at"),
     frozenAt: timestamptz("frozen_at"),
+    // Server-enforced holds; read through readPolicy, which fills in the defaults.
+    policy: jsonb("policy").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
   (t) => [
@@ -206,7 +208,8 @@ export const agentNetworks = pgTable(
   (t) => [primaryKey({ columns: [t.agentId, t.networkDigest] })],
 );
 
-export type AlertKind = "new_network" | "burst" | "refresh_token_reused" | "code_reused";
+export type AlertKind =
+  "new_network" | "burst" | "refresh_token_reused" | "code_reused" | "repeated_holds";
 export type AlertStatus = "open" | "acknowledged" | "frozen" | "resolved";
 
 export const securityAlerts = pgTable(
@@ -228,6 +231,43 @@ export const securityAlerts = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("security_alerts_owner_status_idx").on(t.ownerId, t.status, t.createdAt)],
+);
+
+export type HoldKind = "message" | "group.create" | "group.invite" | "invite_person" | "tool.call";
+export type HoldStatus =
+  "pending" | "approved" | "releasing" | "released" | "denied" | "expired" | "failed";
+
+// An action the server held for its owner's approval. The payload is sealed with the acting
+// agent's owner key and dropped 30 days after the decision.
+export const heldActions = pgTable(
+  "held_actions",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id").references(() => agentTokens.id, { onDelete: "set null" }),
+    approverOwnerId: uuid("approver_owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<HoldKind>().notNull(),
+    reasons: jsonb("reasons").$type<string[]>().notNull(),
+    laneDigest: text("lane_digest").notNull(),
+    payload: sealed("payload"),
+    summary: sealed("summary").notNull(),
+    status: text("status").$type<HoldStatus>().notNull().default("pending"),
+    approvalTokenHash: text("approval_token_hash").unique(),
+    decidedVia: text("decided_via"),
+    decidedAt: timestamptz("decided_at"),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    expiresAt: timestamptz("expires_at").notNull(),
+    releasedAt: timestamptz("released_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("held_actions_agent_status_idx").on(t.agentId, t.status, t.createdAt),
+    index("held_actions_approver_status_idx").on(t.approverOwnerId, t.status, t.createdAt),
+  ],
 );
 
 export const eventSubscriptions = pgTable(
@@ -388,6 +428,10 @@ export const files = pgTable(
       onDelete: "cascade",
     }),
     messageId: uuid("message_id").references(() => messages.id, { onDelete: "cascade" }),
+    // Reserved for a held message, so it can't be sent twice or pruned while it waits.
+    heldActionId: uuid("held_action_id").references(() => heldActions.id, {
+      onDelete: "set null",
+    }),
     name: sealed("name").notNull(),
     mimeType: text("mime_type").notNull(),
     size: integer("size").notNull(),
@@ -545,6 +589,9 @@ export const notices = pgTable(
       onDelete: "cascade",
     }),
     taskKey: text("task_key"),
+    heldActionId: uuid("held_action_id").references(() => heldActions.id, {
+      onDelete: "set null",
+    }),
     text: sealed("text").notNull(),
     deliveredAt: timestamptz("delivered_at"),
     createdAt: createdAt(),
@@ -703,3 +750,4 @@ export type LiveSessionEvent = typeof liveSessionEvents.$inferSelect;
 export type OwnerPasskey = typeof ownerPasskeys.$inferSelect;
 export type TokenSighting = typeof tokenSightings.$inferSelect;
 export type SecurityAlert = typeof securityAlerts.$inferSelect;
+export type HeldAction = typeof heldActions.$inferSelect;

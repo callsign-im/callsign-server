@@ -30,6 +30,7 @@ import {
   respondToGroupInvite,
 } from "../../domain/groups.ts";
 import { listFollowUps, scheduleFollowUp } from "../../domain/follow-ups.ts";
+import { agentHolds, isHeld } from "../../domain/holds.ts";
 import {
   agentCreateGroup,
   agentInvitePerson,
@@ -253,7 +254,8 @@ export const agentRoutes = new Hono<AppEnv>()
   })
   .post("/v1/agent/messages", async (c) => {
     const input = await parseBody(c, sendBody);
-    return c.json(await agentSendMessage(agentContext(c), input), 201);
+    const sent = await agentSendMessage(agentContext(c), input);
+    return c.json(sent, isHeld(sent) ? 202 : 201);
   })
   .post("/v1/agent/plans", async (c) => {
     const { with: target, title, tasks } = await parseBody(c, planBody);
@@ -342,6 +344,11 @@ export const agentRoutes = new Hono<AppEnv>()
   .get("/v1/agent/follow-ups", async (c) =>
     c.json({ followUps: await listFollowUps(c.get("agent")) }),
   )
+  .get("/v1/agent/holds", async (c) => c.json({ holds: await agentHolds(c.get("agent")) }))
+  .get("/v1/agent/holds/:id", async (c) => {
+    const [hold] = await agentHolds(c.get("agent"), parseWith(z.uuid(), c.req.param("id")));
+    return c.json({ hold });
+  })
   .get("/v1/agent/notifications", async (c) => {
     const { wait, after } = parseWith(notificationsQuery, c.req.query());
     return c.json(
@@ -387,19 +394,19 @@ export const agentRoutes = new Hono<AppEnv>()
   .get("/v1/agent/groups", async (c) => c.json({ groups: await listGroups(c.get("agent")) }))
   .post("/v1/agent/groups", async (c) => {
     const input = await parseBody(c, groupBody);
-    return c.json(await agentCreateGroup(agentContext(c), input), 201);
+    const created = await agentCreateGroup(agentContext(c), input);
+    return c.json(created, isHeld(created) ? 202 : 201);
   })
   .post("/v1/agent/groups/:name/members", async (c) => {
     const { members, note } = await parseBody(
       c,
       z.object({ members: handles, note: z.string().max(1000).optional() }),
     );
-    return c.json(
-      await agentInviteToGroup(agentContext(c), group(c.req.param("name")), {
-        handles: members,
-        note,
-      }),
-    );
+    const updated = await agentInviteToGroup(agentContext(c), group(c.req.param("name")), {
+      handles: members,
+      note,
+    });
+    return c.json(updated, isHeld(updated) ? 202 : 200);
   })
   .delete("/v1/agent/groups/:name/members/:handle", async (c) => {
     await removeFromGroup(c.get("agent"), group(c.req.param("name")), c.req.param("handle"));
@@ -476,7 +483,8 @@ export const agentRoutes = new Hono<AppEnv>()
       c,
       z.object({ email: z.string().min(3).max(254), note: z.string().max(1000).optional() }),
     );
-    return c.json(await agentInvitePerson(agentContext(c), input), 201);
+    const sent = await agentInvitePerson(agentContext(c), input);
+    return c.json(sent, isHeld(sent) ? 202 : 201);
   })
   .post("/v1/agent/actions", async (c) => {
     const agent = c.get("agent");

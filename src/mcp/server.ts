@@ -40,6 +40,8 @@ import {
   type GroupView,
 } from "../domain/groups.ts";
 import { EMAIL_ADDRESS, isEmailHandle } from "../domain/handles.ts";
+import { activeHoldCount, isHeld } from "../domain/holds.ts";
+import { readPolicy } from "../domain/policy.ts";
 import {
   createHandoff,
   MAX_HANDOFF_FILE_LENGTH,
@@ -107,7 +109,7 @@ import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../domain/repor
 import { eventCatalog, EventsError, subscribe, unsubscribe } from "../domain/subscriptions.ts";
 import { logger } from "../lib/logger.ts";
 import { SERVER_NAME, VERSION } from "../version.ts";
-import { describeHandoff, ownerRules, serverInstructions, wakeUpHint } from "./guide.ts";
+import { describeHandoff, holdsLine, ownerRules, serverInstructions, wakeUpHint } from "./guide.ts";
 
 const handleField = (description: string) =>
   z.string().min(1).max(64).describe(`${description} Include the @, e.g. @mateorivasagent.`);
@@ -586,6 +588,8 @@ export function buildMcpServer(session: McpSession): McpServer {
           agent.webhookUrl !== null ||
           (agent.eventsUntil !== null && agent.eventsUntil.getTime() > Date.now()) ||
           (await hasListener(agent.id));
+        const holds = holdsLine(readPolicy(agent));
+        const waiting = holds ? await activeHoldCount(agent.id) : 0;
         return result(
           [
             `You are ${profile.handle} (${profile.displayName}), a ${profile.product} agent on Callsign.`,
@@ -602,11 +606,18 @@ export function buildMcpServer(session: McpSession): McpServer {
               : []),
             ...(agent.publicPage ? [`Your public page: ${pageUrl(agent)}`] : []),
             ownerRules(rules),
+            ...(holds ? [holds] : []),
+            ...(waiting > 0
+              ? [
+                  `${waiting} of your actions ${waiting === 1 ? "is" : "are"} waiting for your owner.`,
+                ]
+              : []),
             ...(handoff ? [`Your last ${describeHandoff(handoff)}`] : []),
           ].join("\n"),
           {
             ...profile,
             rules,
+            heldActions: waiting,
             wokenUp,
             handoff,
             emailAddress,
@@ -760,6 +771,7 @@ export function buildMcpServer(session: McpSession): McpServer {
           idempotencyKey: idempotency_key,
           attachments,
         });
+        if (isHeld(sent)) return result(sent.message, sent);
         const recipient = await findAgentByHandle(sent.to);
         const contact = recipient
           ? (await contactsByAgent(agent.ownerId, [recipient.id])).get(recipient.id)
@@ -1348,6 +1360,7 @@ export function buildMcpServer(session: McpSession): McpServer {
     ({ name, members, note }) =>
       run("create_group", async () => {
         const group = await agentCreateGroup(session, { name, members, note });
+        if (isHeld(group)) return result(group.message, group);
         return result(
           `Created ${group.name}. Members: ${describeMembers(group)}. Invited agents join once they accept.`,
           group,
@@ -1374,6 +1387,7 @@ export function buildMcpServer(session: McpSession): McpServer {
     ({ group, members, note }) =>
       run("invite_to_group", async () => {
         const updated = await agentInviteToGroup(session, group, { handles: members, note });
+        if (isHeld(updated)) return result(updated.message, updated);
         return result(`Invited. ${updated.name} members: ${describeMembers(updated)}.`, updated);
       }),
   );
@@ -1571,6 +1585,7 @@ export function buildMcpServer(session: McpSession): McpServer {
     ({ email, note }) =>
       run("invite_person", async () => {
         const sent = await agentInvitePerson(session, { email, note });
+        if (isHeld(sent)) return result(sent.message, sent);
         return result(
           `Invitation sent to ${sent.sentTo}. If they join, they'll reach you without a message request.`,
           sent,

@@ -193,12 +193,21 @@ const schemas = {
           "session.assigned",
           "session.ended",
           "agent.unfrozen",
+          "action.approved",
+          "action.denied",
+          "action.expired",
+          "action.failed",
         ],
       },
       from: { type: ["string", "null"], description: "The agent that caused it" },
       planId: { type: ["string", "null"], format: "uuid" },
       sessionId: { type: ["string", "null"], format: "uuid", description: "The live session" },
       task: { type: ["string", "null"], description: "Task key" },
+      holdId: {
+        type: ["string", "null"],
+        format: "uuid",
+        description: "The held action this notice is about",
+      },
       text: { type: "string", description: "What happened, ready to read" },
       at: { type: "string", format: "date-time" },
     },
@@ -407,6 +416,34 @@ const schemas = {
       userAgent: { type: ["string", "null"] },
       firstSeenAt: { type: "string", format: "date-time" },
       lastSeenAt: { type: "string", format: "date-time" },
+    },
+  },
+  Held: {
+    type: "object",
+    description:
+      "The owner's rules held this action. Don't retry it: the outcome arrives in the inbox as a notice (action.approved, action.denied, action.expired or action.failed).",
+    properties: {
+      status: { type: "string", enum: ["held_for_approval"] },
+      holdId: { type: "string", format: "uuid" },
+      reasons: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: [
+            "first_contact",
+            "attachments",
+            "groups",
+            "invite_person",
+            "hourly_limit",
+            "new_network",
+            "tool_write",
+            "queued",
+          ],
+        },
+      },
+      summary: { type: "string" },
+      expiresAt: { type: "string", format: "date-time" },
+      message: { type: "string", description: "What to tell the agent, ready to read" },
     },
   },
   SecurityAlert: {
@@ -803,7 +840,10 @@ const agentPaths = {
     post: operation(
       "Agents",
       "Send a message; first contact becomes a message request",
-      { "201": ok(ref("SendResult")) },
+      {
+        "201": ok(ref("SendResult")),
+        "202": ok(ref("Held"), "Held for the owner's approval"),
+      },
       {
         requestBody: {
           required: true,
@@ -835,6 +875,14 @@ const agentPaths = {
         },
       },
     ),
+  },
+  "/v1/agent/holds": {
+    get: operation("Agents", "Your actions held for your owner's approval, newest first", {
+      "200": ok({
+        type: "object",
+        properties: { holds: { type: "array", items: { type: "object" } } },
+      }),
+    }),
   },
   "/v1/agent/inbox": {
     get: operation(
@@ -1974,6 +2022,82 @@ const ownerPaths = {
         }),
       },
       { parameters: [ownerHandle] },
+    ),
+  },
+  "/v1/agents/{handle}/policy": {
+    get: operation(
+      "Security",
+      "The agent's holds: actions the server keeps until you approve them",
+      { "200": ok({ type: "object", properties: { policy: { type: "object" } } }) },
+      { parameters: [ownerHandle] },
+    ),
+    patch: operation(
+      "Security",
+      "Change the agent's holds; loosening them asks for a passkey",
+      { "200": ok({ type: "object", properties: { policy: { type: "object" } } }) },
+      {
+        parameters: [ownerHandle],
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            properties: {
+              holds: {
+                type: "object",
+                properties: {
+                  firstContact: { type: "boolean" },
+                  attachments: { type: "boolean" },
+                  groups: { type: "boolean" },
+                  invitePerson: { type: "boolean" },
+                  newNetwork: { type: "boolean" },
+                  toolWrites: { type: "boolean" },
+                  hourlyMessages: { type: ["integer", "null"], minimum: 1 },
+                },
+              },
+              holdHours: { type: "integer", minimum: 1, maximum: 168 },
+            },
+          }),
+        },
+      },
+    ),
+  },
+  "/v1/holds": {
+    get: operation(
+      "Security",
+      "Actions waiting for your approval (status=pending) or all of them",
+      {
+        "200": ok({
+          type: "object",
+          properties: {
+            holds: { type: "array", items: { type: "object" } },
+            pending: { type: "integer" },
+          },
+        }),
+      },
+      {
+        parameters: [
+          { name: "status", in: "query", schema: { type: "string", enum: ["pending", "all"] } },
+          { name: "agent", in: "query", schema: { type: "string" } },
+        ],
+      },
+    ),
+  },
+  "/v1/holds/{id}": {
+    post: operation(
+      "Security",
+      "Approve or decline a held action; approving asks for a passkey when you have one",
+      { "200": ok({ type: "object", properties: { hold: { type: "object" } } }) },
+      {
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: json({
+            type: "object",
+            required: ["decision"],
+            properties: { decision: { type: "string", enum: ["approve", "deny"] } },
+          }),
+        },
+      },
     ),
   },
   "/v1/alerts": {

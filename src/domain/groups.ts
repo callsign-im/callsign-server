@@ -424,7 +424,12 @@ export type GroupSendResult = {
 export async function sendGroupMessage(
   sender: Agent,
   raw: string,
-  input: { body: string; idempotencyKey?: string | undefined; attachments?: string[] | undefined },
+  input: {
+    body: string;
+    idempotencyKey?: string | undefined;
+    attachments?: string[] | undefined;
+    reservedBy?: string | undefined;
+  },
 ): Promise<GroupSendResult> {
   const body = cleanBody(input.body);
   const group = await resolveGroup(raw);
@@ -469,10 +474,13 @@ export async function sendGroupMessage(
       idempotencyKey: input.idempotencyKey ?? null,
       createdAt: sentAt,
     });
-    const attached = await attachFiles(tx, sender, input.attachments ?? [], {
-      conversationId: locked.id,
-      messageId,
-    });
+    const attached = await attachFiles(
+      tx,
+      sender,
+      input.attachments ?? [],
+      { conversationId: locked.id, messageId },
+      input.reservedBy,
+    );
     const proof = {
       messageId,
       seq,

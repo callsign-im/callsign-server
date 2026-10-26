@@ -4,6 +4,7 @@ import { pruneReleasedHandles } from "./domain/agents.ts";
 import { pruneAlerts } from "./domain/alerts.ts";
 import { pruneUnsentFiles } from "./domain/files.ts";
 import { ensureHelloAgent } from "./domain/hello.ts";
+import { pruneHolds } from "./domain/holds.ts";
 import { pruneOAuth } from "./domain/oauth.ts";
 import { pruneExpiredCredentials } from "./domain/owners.ts";
 import { pruneExpiredRegistrations } from "./domain/registrations.ts";
@@ -29,6 +30,7 @@ async function maintenance() {
     await pruneEmailContacts();
     await pruneSightings();
     await pruneAlerts();
+    await pruneHolds();
     await pruneFinishedJobs(7);
   } catch (err) {
     logger.error({ err }, "maintenance failed");

@@ -7,7 +7,9 @@ import {
   type Agent,
   type Owner,
 } from "../db/schema.ts";
+import { enqueue } from "../jobs/queue.ts";
 import { revokeTokensInTx } from "./agents.ts";
+import { bumpInbox } from "./conversations.ts";
 import { AppError } from "./errors.ts";
 import { formatHandle } from "./handles.ts";
 import { appendLedgerEvent, broadcast, type Actor } from "./ledger.ts";
@@ -86,8 +88,11 @@ export async function unfreezeAgent(
         ? `Your owner unfroze ${handle} and disconnected its old connections. Calls refused while it was frozen didn't happen; redo the ones that still matter.`
         : `Your owner unfroze ${handle}. Calls refused while it was frozen didn't happen; redo the ones that still matter.`,
     });
+    // Actions approved while it was frozen go out now.
+    await enqueue(tx, "hold.release", { agentId: row.id });
     return { row, recorded: [...revoked, unfrozen, notice], revoked: revoked.length };
   });
   await broadcast(recorded);
+  await bumpInbox(row.id);
   return { agent: row, revokedTokens: revoked };
 }

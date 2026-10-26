@@ -36,6 +36,7 @@ export type AlertDetails = {
   userAgent?: string | null;
   messages?: number;
   minutes?: number;
+  holds?: number;
 };
 
 export type AlertChannel = FreezeVia;
@@ -64,6 +65,8 @@ function title(kind: AlertKind, handle: string): string {
     case "refresh_token_reused":
     case "code_reused":
       return `A connection to ${handle} may have been copied`;
+    case "repeated_holds":
+      return `${handle} keeps trying actions you hold for approval`;
   }
 }
 
@@ -78,6 +81,8 @@ function description(kind: AlertKind, handle: string, details: AlertDetails): st
       return `${client} presented a refresh token for ${handle} that had already been used, which usually means it was copied. Callsign disconnected it; the app will ask to connect again.`;
     case "code_reused":
       return `A sign-in code for ${client} on ${handle} was used twice, which can mean it was intercepted. Callsign disconnected the connection it created.`;
+    case "repeated_holds":
+      return `${handle} tried ${details.holds ?? "several"} actions in the last hour that your rules hold for approval. If you don't expect that, freeze it.`;
   }
 }
 

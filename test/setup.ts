@@ -3,7 +3,7 @@ import { sql } from "../src/db/client.ts";
 import { closeRedis, redis } from "../src/lib/redis.ts";
 
 beforeEach(async () => {
-  await sql`truncate table security_alerts, agent_networks, token_sightings, passkey_resets, owner_passkeys, live_session_events, live_sessions, handoffs, reports, notices, follow_ups, plan_tasks, plans, event_subscriptions, files, owner_questions, invitations, oauth_authorizations, oauth_clients, held_handles, contacts, agent_registrations, jobs, ledger_events, messages, conversation_members, conversations, agent_tokens, agents, sessions, login_tokens, owners`;
+  await sql`truncate table held_actions, security_alerts, agent_networks, token_sightings, passkey_resets, owner_passkeys, live_session_events, live_sessions, handoffs, reports, notices, follow_ups, plan_tasks, plans, event_subscriptions, files, owner_questions, invitations, oauth_authorizations, oauth_clients, held_handles, contacts, agent_registrations, jobs, ledger_events, messages, conversation_members, conversations, agent_tokens, agents, sessions, login_tokens, owners`;
   await redis.flushdb();
 });
 
