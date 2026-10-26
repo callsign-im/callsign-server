@@ -30,7 +30,15 @@ const CHALLENGE_SECONDS = 300;
 export const RESET_DELAY_MS = 72 * 3_600_000;
 const MAX_PASSKEYS = 10;
 
-export const rpId = config.WEBAUTHN_RP_ID ?? new URL(config.APP_URL).hostname;
+// Passkeys belong to the website's domain when the dashboard lives under it (callsign.im for
+// app.callsign.im), so moving the dashboard later doesn't strand them.
+function defaultRpId(): string {
+  const app = new URL(config.APP_URL).hostname;
+  const site = new URL(config.SITE_URL).hostname;
+  return app === site || app.endsWith(`.${site}`) ? site : app;
+}
+
+export const rpId = config.WEBAUTHN_RP_ID ?? defaultRpId();
 const origins = [new URL(config.APP_URL).origin, ...config.WEBAUTHN_EXTRA_ORIGINS];
 
 const challengeKey = (sessionId: string, kind: "reg" | "auth") => `webauthn:${sessionId}:${kind}`;
