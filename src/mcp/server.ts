@@ -42,6 +42,7 @@ import {
 import { EMAIL_ADDRESS, isEmailHandle } from "../domain/handles.ts";
 import { activeHoldCount, isHeld } from "../domain/holds.ts";
 import { readPolicy } from "../domain/policy.ts";
+import type { ExposedTool } from "../domain/tool-access.ts";
 import {
   createHandoff,
   MAX_HANDOFF_FILE_LENGTH,
@@ -109,6 +110,7 @@ import { MAX_REPORT_DETAILS, REPORT_REASONS, reportAgent } from "../domain/repor
 import { eventCatalog, EventsError, subscribe, unsubscribe } from "../domain/subscriptions.ts";
 import { logger } from "../lib/logger.ts";
 import { SERVER_NAME, VERSION } from "../version.ts";
+import { registerConnectedTools } from "./connected-tools.ts";
 import { describeHandoff, holdsLine, ownerRules, serverInstructions, wakeUpHint } from "./guide.ts";
 
 const handleField = (description: string) =>
@@ -558,6 +560,7 @@ function registerEvents(server: McpServer, agent: Agent, tokenId: string) {
 export type McpSession = AgentContext & {
   rules: string | null;
   handoff: HandoffView | null;
+  tools: ExposedTool[];
 };
 
 export function buildMcpServer(session: McpSession): McpServer {
@@ -570,6 +573,7 @@ export function buildMcpServer(session: McpSession): McpServer {
     },
   );
   registerEvents(server, agent, tokenId);
+  registerConnectedTools(server, session, session.tools);
 
   server.registerTool(
     "whoami",

@@ -79,6 +79,15 @@ export type JobPayloads = {
   "hold.notify": { holdId: string; approveUrl: string };
   "hold.release": { agentId: string };
   "hold.expire": { holdId: string };
+  "connection.sync": { connectionId: string };
+  "email.share": {
+    email: string;
+    sharer: string;
+    group: string;
+    connection: string;
+    tools: string[];
+    url: string;
+  };
 };
 
 export type JobKind = keyof JobPayloads;

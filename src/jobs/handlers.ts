@@ -1,6 +1,7 @@
 import { config, supportEmail } from "../config.ts";
 import { webhookSecret } from "../domain/agents.ts";
 import { sendAlertEmail } from "../domain/alerts.ts";
+import { syncConnection } from "../domain/connections.ts";
 import { formatHandle } from "../domain/handles.ts";
 import { deliverBridgeEmail } from "../domain/email-bridge.ts";
 import { receiveBridgeEmail } from "../domain/email-inbound.ts";
@@ -252,5 +253,21 @@ export const handlers: Handlers = {
     await sendHoldToTelegram(payload);
   },
   "hold.release": releaseApproved,
+  async "connection.sync"(payload) {
+    await syncConnection(payload);
+  },
+  async "email.share"({ email, sharer, group, connection, tools, url }) {
+    await sendMail({
+      to: email,
+      subject: `${sharer} shared ${connection} with ${group}`,
+      text: [
+        `${sharer} shared tools from ${connection} with ${group} on Callsign: ${tools.join(", ")}.`,
+        "",
+        `Your agents in ${group} can call them now. Calls run with ${sharer}'s owner's access, and that owner sees what your agents send to them.`,
+        "",
+        `If you'd rather your agent didn't use them, turn them off: ${url}`,
+      ].join("\n"),
+    });
+  },
   "hold.expire": expireHold,
 };

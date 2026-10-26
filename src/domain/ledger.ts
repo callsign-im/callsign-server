@@ -23,6 +23,8 @@ export type LedgerEventType =
   | "action.released"
   | "action.expired"
   | "action.failed"
+  | "tool.called"
+  | "tool.used"
   | "token.created"
   | "token.revoked"
   | "request.sent"

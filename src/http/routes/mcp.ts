@@ -4,6 +4,7 @@ import type { Agent } from "../../db/schema.ts";
 import { agentRules } from "../../domain/agents.ts";
 import { AppError } from "../../domain/errors.ts";
 import { latestHandoff } from "../../domain/handoffs.ts";
+import { exposedTools } from "../../domain/tool-access.ts";
 import { OAUTH_SCOPE, resourceMetadataUrl } from "../../domain/oauth.ts";
 import { logger } from "../../lib/logger.ts";
 import { buildMcpServer, type McpSession } from "../../mcp/server.ts";
@@ -46,8 +47,12 @@ async function serve(c: Context, token: string | undefined) {
     throw error;
   }
   const { agent, tokenId, client } = credential;
-  const [rules, handoff] = await Promise.all([agentRules(agent), latestHandoff(agent)]);
-  const session: McpSession = { agent, tokenId, client, seen, rules, handoff };
+  const [rules, handoff, tools] = await Promise.all([
+    agentRules(agent),
+    latestHandoff(agent),
+    exposedTools(agent),
+  ]);
+  const session: McpSession = { agent, tokenId, client, seen, rules, handoff, tools };
   return handler.fetch(c.req.raw, {
     authInfo: { token: "redacted", clientId: agent.id, scopes: ["agent"], extra: { session } },
   });

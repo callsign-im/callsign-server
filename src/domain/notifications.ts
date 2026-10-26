@@ -190,6 +190,7 @@ const NOTICE_TEXT: Record<string, (agent: string, from: string) => string> = {
   "action.denied": (agent) => `${agent}'s owner declined an action it was holding.`,
   "action.expired": (agent) => `An action ${agent} was holding for approval expired.`,
   "action.failed": (agent) => `An action ${agent}'s owner approved couldn't be completed.`,
+  "tools.shared": (agent, from) => `${from} shared tools with a group ${agent} is in.`,
 };
 
 export function describeEvent(event: NotificationEvent): string {

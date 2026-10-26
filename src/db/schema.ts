@@ -130,6 +130,8 @@ export const agents = pgTable(
     lastSeenAt: timestamptz("last_seen_at"),
     suspendedAt: timestamptz("suspended_at"),
     frozenAt: timestamptz("frozen_at"),
+    // Whether tools other owners share in its groups show up for it.
+    sharedTools: boolean("shared_tools").notNull().default(true),
     // Server-enforced holds; read through readPolicy, which fills in the defaults.
     policy: jsonb("policy").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
@@ -751,3 +753,150 @@ export type OwnerPasskey = typeof ownerPasskeys.$inferSelect;
 export type TokenSighting = typeof tokenSightings.$inferSelect;
 export type SecurityAlert = typeof securityAlerts.$inferSelect;
 export type HeldAction = typeof heldActions.$inferSelect;
+
+export type ConnectionAuth = "oauth" | "header" | "none";
+export type ConnectionStatus = "pending" | "active" | "needs_reauth" | "error";
+
+// An MCP server an owner connected once for their agents and groups. Every secret is sealed
+// with the connection's own data key.
+export const mcpConnections = pgTable(
+  "mcp_connections",
+  {
+    id: uuid("id").primaryKey(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => owners.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    serverUrl: text("server_url").notNull(),
+    authKind: text("auth_kind").$type<ConnectionAuth>().notNull(),
+    dataKey: text("data_key").notNull(),
+    credentials: sealed("credentials"),
+    oauthClient: sealed("oauth_client"),
+    oauthPending: sealed("oauth_pending"),
+    pendingStateHash: text("pending_state_hash").unique(),
+    credentialsVersion: integer("credentials_version").notNull().default(0),
+    status: text("status").$type<ConnectionStatus>().notNull().default("pending"),
+    lastError: text("last_error"),
+    syncFailures: integer("sync_failures").notNull().default(0),
+    toolsSyncedAt: timestamptz("tools_synced_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("mcp_connections_owner_slug_idx").on(t.ownerId, t.slug)],
+);
+
+export type ConnectionToolStatus = "new" | "active" | "changed" | "removed";
+
+export const mcpConnectionTools = pgTable(
+  "mcp_connection_tools",
+  {
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    definition: sealed("definition").notNull(),
+    definitionHash: text("definition_hash").notNull(),
+    // The definition the owner approved. A changed definition stays hidden until approved again.
+    approvedHash: text("approved_hash"),
+    enabled: boolean("enabled").notNull().default(false),
+    write: boolean("write").notNull(),
+    status: text("status").$type<ConnectionToolStatus>().notNull().default("new"),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.connectionId, t.name] })],
+);
+
+export type ToolAccess = "read" | "write";
+
+// The owner's own agents that may use a connection.
+export const mcpGrants = pgTable(
+  "mcp_grants",
+  {
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    access: text("access").$type<ToolAccess>().notNull(),
+    tools: jsonb("tools").$type<string[] | null>(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.connectionId, t.agentId] }),
+    index("mcp_grants_agent_id_idx").on(t.agentId),
+  ],
+);
+
+export type ShareApproval = "none" | "write" | "all";
+
+// A connection shared with a #group: its members' agents may call the listed tools.
+export const mcpShares = pgTable(
+  "mcp_shares",
+  {
+    id: uuid("id").primaryKey(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    sharerAgentId: uuid("sharer_agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    tools: jsonb("tools").$type<string[]>().notNull(),
+    approval: text("approval").$type<ShareApproval>().notNull().default("write"),
+    perAgentDaily: integer("per_agent_daily").notNull().default(50),
+    paused: boolean("paused").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("mcp_shares_conversation_id_idx").on(t.conversationId),
+    index("mcp_shares_connection_id_idx").on(t.connectionId),
+  ],
+);
+
+export const mcpShareOptOuts = pgTable(
+  "mcp_share_opt_outs",
+  {
+    shareId: uuid("share_id")
+      .notNull()
+      .references(() => mcpShares.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.shareId, t.agentId] })],
+);
+
+export type ToolCallStatus = "ok" | "error" | "held" | "refused";
+
+// Every call through a connection, for its owner and for the calling agent's owner.
+export const mcpCalls = pgTable(
+  "mcp_calls",
+  {
+    id: uuid("id").primaryKey(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    shareId: uuid("share_id").references(() => mcpShares.id, { onDelete: "set null" }),
+    tool: text("tool").notNull(),
+    status: text("status").$type<ToolCallStatus>().notNull(),
+    durationMs: integer("duration_ms"),
+    argsDigest: text("args_digest").notNull(),
+    args: sealed("args"),
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("mcp_calls_connection_idx").on(t.connectionId, t.createdAt),
+    index("mcp_calls_agent_idx").on(t.agentId, t.createdAt),
+  ],
+);
+
+export type McpConnection = typeof mcpConnections.$inferSelect;
+export type McpConnectionTool = typeof mcpConnectionTools.$inferSelect;
+export type McpGrant = typeof mcpGrants.$inferSelect;
+export type McpShare = typeof mcpShares.$inferSelect;

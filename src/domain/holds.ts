@@ -55,6 +55,7 @@ import { createNotice } from "./notices.ts";
 import type { OwnerSession } from "./owners.ts";
 import { assertStepUp, ownerHasPasskeys } from "./passkeys.ts";
 import { holdsAnything, readPolicy, type Policy } from "./policy.ts";
+import { releaseToolCall } from "./tool-calls.ts";
 
 export type HoldReason =
   | "first_contact"
@@ -64,6 +65,7 @@ export type HoldReason =
   | "hourly_limit"
   | "new_network"
   | "tool_write"
+  | "shared_tool"
   | "queued";
 
 export const REASON_TEXT: Record<HoldReason, string> = {
@@ -74,6 +76,7 @@ export const REASON_TEXT: Record<HoldReason, string> = {
   hourly_limit: "it goes over the hourly message limit",
   new_network: "it came from a network the agent hasn't used before",
   tool_write: "it uses a tool that can change things",
+  shared_tool: "it uses a tool you shared, and your share asks you to approve it",
   queued: "an earlier action to the same place is waiting for approval",
 };
 
@@ -142,7 +145,7 @@ function summarize(request: HoldRequest): string {
     case "invite_person":
       return `Invite ${request.input.email.trim().toLowerCase()} to Callsign`;
     case "tool.call":
-      return `Use ${request.input.tool}`;
+      return `Use ${request.input.tool} with ${excerpt(JSON.stringify(request.input.arguments), 200)}`;
   }
 }
 
@@ -264,12 +267,13 @@ function heldMessage(reasons: HoldReason[]): string {
 export async function maybeHold(
   ctx: AgentContext,
   request: HoldRequest,
-  options: { approverOwnerId?: string; extraReasons?: HoldReason[] } = {},
+  options: { approverOwnerId?: string; extraReasons?: HoldReason[]; skipPolicy?: boolean } = {},
 ): Promise<Held | null> {
   const policy = readPolicy(ctx.agent);
   const key = await ownerKey(ctx.agent.ownerId);
   const laneDigest = key.digest(`lane:${lane(request)}`);
-  const reasons = holdsAnything(policy) ? await evaluate(ctx, request, policy, key) : [];
+  const reasons =
+    holdsAnything(policy) && !options.skipPolicy ? await evaluate(ctx, request, policy, key) : [];
   reasons.push(...(options.extraReasons ?? []));
   if (reasons.length === 0 && (await laneBusy(ctx.agent.id, laneDigest))) reasons.push("queued");
   if (reasons.length === 0) return null;
@@ -313,7 +317,7 @@ async function holdAction(
     await tx.insert(heldActions).values({
       id,
       agentId: agent.id,
-      tokenId: ctx.tokenId,
+      tokenId: ctx.tokenId || null,
       approverOwnerId: options.approverOwnerId,
       kind: request.kind,
       reasons: options.reasons,
@@ -698,7 +702,11 @@ async function run(agent: Agent, hold: HeldAction, input: StoredPayload["input"]
       return { text: `The invitation went to ${sent.sentTo}.`, result: { sentTo: sent.sentTo } };
     }
     case "tool.call":
-      throw new AppError("conflict", "Tool calls can't be released on this server.");
+      return releaseToolCall(
+        agent,
+        hold,
+        input as Extract<HoldRequest, { kind: "tool.call" }>["input"],
+      );
   }
 }
 

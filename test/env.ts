@@ -11,4 +11,5 @@ export const testEnv = {
   SITE_URL: "http://localhost:3000",
   ENCRYPTION_KEY: "nG3BpYl+rMlnT/vTjRklnDQWbqQuaDUYDEZ4PJl5oII=",
   ALLOW_PRIVATE_WEBHOOKS: "true",
+  ALLOW_PRIVATE_TOOLS: "true",
 };

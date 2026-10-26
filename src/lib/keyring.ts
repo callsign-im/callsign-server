@@ -6,7 +6,7 @@ import { DataKey, decrypt, encrypt, KEY_BYTES } from "./encryption.ts";
 const CACHE_TTL_MS = 5 * 60_000;
 const CACHE_MAX_ENTRIES = 10_000;
 
-export type KeyScope = "owner" | "conversation" | "file" | "session";
+export type KeyScope = "owner" | "conversation" | "file" | "session" | "connection";
 export type KeyContext = { scope: KeyScope; id: string };
 
 export type KeyWrapper = {

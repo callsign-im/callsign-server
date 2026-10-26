@@ -10,6 +10,7 @@ import { AppError } from "../domain/errors.ts";
 import { logger } from "../lib/logger.ts";
 import type { AppEnv } from "./context.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { connectionRoutes } from "./routes/connections.ts";
 import { agentRoutes } from "./routes/agent.ts";
 import { discoveryRoutes } from "./routes/discovery.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
@@ -91,6 +92,7 @@ export function createApp() {
   app.route("/", mcpRoutes);
   app.route("/", ownerRoutes);
   app.route("/", securityRoutes);
+  app.route("/", connectionRoutes);
   app.route("/", adminRoutes);
 
   app.notFound((c) => c.json({ error: { code: "not_found", message: "Route not found." } }, 404));

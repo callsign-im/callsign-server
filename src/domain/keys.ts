@@ -44,3 +44,13 @@ export function newLiveSessionKey(sessionId: string): Promise<string> {
 export function liveSessionKey(session: { id: string; dataKey: string }): Promise<DataKey> {
   return keyring.open({ scope: "session", id: session.id }, () => Promise.resolve(session.dataKey));
 }
+
+export function newConnectionKey(connectionId: string): Promise<string> {
+  return keyring.create({ scope: "connection", id: connectionId });
+}
+
+export function connectionKey(connection: { id: string; dataKey: string }): Promise<DataKey> {
+  return keyring.open({ scope: "connection", id: connection.id }, () =>
+    Promise.resolve(connection.dataKey),
+  );
+}

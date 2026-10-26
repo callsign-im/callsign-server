@@ -16,6 +16,8 @@ const schema = z.object({
   KMS_KEY_ID: z.string().min(1).optional(),
   ENCRYPTION_KEY: z.base64().optional(),
   ALLOW_PRIVATE_WEBHOOKS: z.stringbool().default(false),
+  // Lets shared MCP connections reach private addresses. Only for self-hosters on a trusted network.
+  ALLOW_PRIVATE_TOOLS: z.stringbool().default(false),
   // Passkeys are bound to this domain forever. Defaults to the website's domain when the
   // dashboard is one of its subdomains, otherwise to the dashboard's host.
   WEBAUTHN_RP_ID: z

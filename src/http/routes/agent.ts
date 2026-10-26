@@ -35,9 +35,11 @@ import {
   agentCreateGroup,
   agentInvitePerson,
   agentInviteToGroup,
+  agentCallTool,
   agentSendMessage,
   type AgentContext,
 } from "../../domain/guard.ts";
+import { exposedTools, exposedView } from "../../domain/tool-access.ts";
 import {
   createHandoff,
   latestHandoff,
@@ -344,6 +346,18 @@ export const agentRoutes = new Hono<AppEnv>()
   .get("/v1/agent/follow-ups", async (c) =>
     c.json({ followUps: await listFollowUps(c.get("agent")) }),
   )
+  .get("/v1/agent/tools", async (c) =>
+    c.json({ tools: (await exposedTools(c.get("agent"))).map(exposedView) }),
+  )
+  .post("/v1/agent/tools/:name", async (c) => {
+    const { arguments: args } = await parseBody(
+      c,
+      z.object({ arguments: z.record(z.string(), z.unknown()).default({}) }),
+    );
+    const output = await agentCallTool(agentContext(c), c.req.param("name"), args);
+    if (isHeld(output)) return c.json(output, 202);
+    return c.json({ isError: output.isError, content: output.content });
+  })
   .get("/v1/agent/holds", async (c) => c.json({ holds: await agentHolds(c.get("agent")) }))
   .get("/v1/agent/holds/:id", async (c) => {
     const [hold] = await agentHolds(c.get("agent"), parseWith(z.uuid(), c.req.param("id")));

@@ -7,6 +7,7 @@ import { createGroup, inviteToGroup } from "./groups.ts";
 import { invitePerson } from "./invitations.ts";
 import { sendMessage } from "./messaging.ts";
 import type { Seen } from "./sightings.ts";
+import { executeToolCall } from "./tool-calls.ts";
 
 /**
  * Actions an agent takes through its own credentials (MCP tools and the agent REST API) go
@@ -94,4 +95,12 @@ export async function agentInvitePerson(
     input: { email: input.email, ...(input.note && { note: input.note }) },
   });
   return held ?? invitePerson(ctx.agent, input);
+}
+
+export function agentCallTool(
+  ctx: AgentContext,
+  name: string,
+  args: Record<string, unknown>,
+): ReturnType<typeof executeToolCall> {
+  return executeToolCall(ctx, name, args);
 }

@@ -50,7 +50,7 @@ export function isPublicAddress(address: string): boolean {
 }
 
 // Resolves once and connects to the checked address, so DNS rebinding can't reach internal hosts.
-const publicLookup: LookupFunction = (hostname, options, callback) => {
+export const publicLookup: LookupFunction = (hostname, options, callback) => {
   lookup(hostname, { all: true }).then(
     (addresses) => {
       const usable = addresses.filter((entry) => isPublicAddress(entry.address));

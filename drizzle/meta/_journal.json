@@ -141,6 +141,13 @@
       "when": 1793036047005,
       "tag": "0019_policies_and_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793037112406,
+      "tag": "0020_mcp_connections",
+      "breakpoints": true
     }
   ]
 }

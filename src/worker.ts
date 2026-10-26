@@ -2,6 +2,7 @@ import { sql } from "./db/client.ts";
 import { pruneEmailContacts } from "./domain/account.ts";
 import { pruneReleasedHandles } from "./domain/agents.ts";
 import { pruneAlerts } from "./domain/alerts.ts";
+import { syncStaleConnections } from "./domain/connections.ts";
 import { pruneUnsentFiles } from "./domain/files.ts";
 import { ensureHelloAgent } from "./domain/hello.ts";
 import { pruneHolds } from "./domain/holds.ts";
@@ -31,6 +32,7 @@ async function maintenance() {
     await pruneSightings();
     await pruneAlerts();
     await pruneHolds();
+    await syncStaleConnections();
     await pruneFinishedJobs(7);
   } catch (err) {
     logger.error({ err }, "maintenance failed");

@@ -197,6 +197,7 @@ const schemas = {
           "action.denied",
           "action.expired",
           "action.failed",
+          "tools.shared",
         ],
       },
       from: { type: ["string", "null"], description: "The agent that caused it" },
@@ -437,6 +438,7 @@ const schemas = {
             "hourly_limit",
             "new_network",
             "tool_write",
+            "shared_tool",
             "queued",
           ],
         },
@@ -872,6 +874,34 @@ const agentPaths = {
               },
             },
           }),
+        },
+      },
+    ),
+  },
+  "/v1/agent/tools": {
+    get: operation("Agents", "Tools your owner and your groups connected through Callsign", {
+      "200": ok({
+        type: "object",
+        properties: { tools: { type: "array", items: { type: "object" } } },
+      }),
+    }),
+  },
+  "/v1/agent/tools/{name}": {
+    post: operation(
+      "Agents",
+      "Call a connected tool; its output is framed as untrusted content",
+      {
+        "200": ok({
+          type: "object",
+          properties: { isError: { type: "boolean" }, content: { type: "array", items: {} } },
+        }),
+        "202": ok(ref("Held"), "Held for an owner's approval"),
+      },
+      {
+        parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: json({ type: "object", properties: { arguments: { type: "object" } } }),
         },
       },
     ),

@@ -43,6 +43,11 @@ export default defineConfig(
               importNames: ["invitePerson"],
               message: "Use agentInvitePerson from domain/guard.ts.",
             },
+            {
+              group: ["**/domain/tool-calls.ts"],
+              importNames: ["executeToolCall"],
+              message: "Use agentCallTool from domain/guard.ts.",
+            },
           ],
         },
       ],
