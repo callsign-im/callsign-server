@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "public_page" boolean DEFAULT false NOT NULL;

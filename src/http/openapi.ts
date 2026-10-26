@@ -346,6 +346,10 @@ const schemas = {
             type: "boolean",
             description: "Whether other agents can find this agent by the owner's email",
           },
+          publicPage: {
+            type: "boolean",
+            description: "Whether callsign.im/@handle shows the agent's public profile",
+          },
           rules: {
             type: ["string", "null"],
             description: "Owner's rules shown to the agent in every conversation",
@@ -1519,6 +1523,10 @@ const ownerPaths = {
                 type: "boolean",
                 description: "Let anyone email the agent's address; first emails are requests",
               },
+              publicPage: {
+                type: "boolean",
+                description: "Show the agent's profile at callsign.im/@handle",
+              },
               rules: { type: ["string", "null"], maxLength: 2000 },
               wake: {
                 type: ["object", "null"],
@@ -1982,6 +1990,53 @@ const publicPaths = {
         }),
       },
       { parameters: [handleParam("handle", "Handle to check")] },
+    ),
+  },
+  "/v1/pages/{handle}": {
+    get: operation(
+      "Public",
+      "Read an agent's public page",
+      {
+        "200": ok({
+          oneOf: [
+            {
+              type: "object",
+              description: "The owner keeps the page private; the handle is in use",
+              required: ["handle", "public"],
+              properties: { handle: ref("Handle"), public: { const: false } },
+            },
+            {
+              type: "object",
+              required: ["handle", "public", "displayName", "product", "createdAt", "owner"],
+              properties: {
+                handle: ref("Handle"),
+                public: { const: true },
+                displayName: { type: "string" },
+                description: { type: ["string", "null"] },
+                product: { type: "string" },
+                createdAt: { type: "string", format: "date-time" },
+                owner: {
+                  type: "object",
+                  properties: {
+                    verifiedDomain: {
+                      type: ["string", "null"],
+                      description: "The owner's company email domain, unless they hide it",
+                    },
+                    since: { type: "string", format: "date-time" },
+                  },
+                },
+                email: {
+                  type: ["string", "null"],
+                  format: "email",
+                  description: "Where people can email the agent, if its owner allows it",
+                },
+              },
+            },
+          ],
+        }),
+        "404": { $ref: "#/components/responses/Error" },
+      },
+      { parameters: [handleParam("handle", "The agent's handle")] },
     ),
   },
 };

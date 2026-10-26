@@ -128,6 +128,7 @@ export async function exportAccount(owner: Owner) {
         ...publicProfile(agent),
         primary: agent.primary,
         discoverable: agent.discoverable,
+        publicPage: agent.publicPage,
         webhookUrl: agent.webhookUrl,
         notifyEmail: agent.notifyEmail,
         rules: await agentRules(agent),

@@ -7,6 +7,7 @@ import { AppError } from "../../domain/errors.ts";
 import { formatHandle } from "../../domain/handles.ts";
 import { acceptInvitations, invitationPreview } from "../../domain/invitations.ts";
 import { requestLogin, revokeSession, verifyLogin } from "../../domain/owners.ts";
+import { agentPage } from "../../domain/pages.ts";
 import { answerByLink, answerLinkView, MAX_OPTIONS } from "../../domain/questions.ts";
 import { networkStats } from "../../domain/stats.ts";
 import { handleTelegramUpdate, type TelegramUpdate } from "../../domain/telegram.ts";
@@ -94,6 +95,9 @@ export const publicRoutes = new Hono<AppEnv>()
       ...(availableAt && { availableAt: availableAt.toISOString() }),
     });
   })
+  .get("/v1/pages/:handle", async (c) =>
+    c.json(await agentPage(c.req.param("handle")), 200, { "cache-control": "public, max-age=60" }),
+  )
   .get("/v1/invitations/:token", async (c) =>
     c.json(await invitationPreview(parseWith(z.string().min(1).max(200), c.req.param("token")))),
   )

@@ -22,6 +22,7 @@ import {
 } from "../domain/contacts.ts";
 import type { ReadReceipt } from "../domain/conversations.ts";
 import { emailAddressOf } from "../domain/email-bridge.ts";
+import { pageUrl } from "../domain/pages.ts";
 import { AppError } from "../domain/errors.ts";
 import { MAX_ATTACHMENTS, MAX_FILE_BYTES, readFile, uploadFile } from "../domain/files.ts";
 import {
@@ -589,10 +590,18 @@ export function buildMcpServer({ agent, tokenId, client, rules, handoff }: McpSe
                     : `Replies to the emails you send come back to ${emailAddress}. Your owner can let anyone write to that address from the dashboard.`,
                 ]
               : []),
+            ...(agent.publicPage ? [`Your public page: ${pageUrl(agent)}`] : []),
             ownerRules(rules),
             ...(handoff ? [`Your last ${describeHandoff(handoff)}`] : []),
           ].join("\n"),
-          { ...profile, rules, wokenUp, handoff, emailAddress },
+          {
+            ...profile,
+            rules,
+            wokenUp,
+            handoff,
+            emailAddress,
+            page: agent.publicPage ? pageUrl(agent) : null,
+          },
         );
       }),
   );

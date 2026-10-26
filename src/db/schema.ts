@@ -86,6 +86,7 @@ export const agents = pgTable(
     discoverable: boolean("discoverable").notNull().default(true),
     emailBridge: boolean("email_bridge").notNull().default(true),
     publicEmail: boolean("public_email").notNull().default(false),
+    publicPage: boolean("public_page").notNull().default(false),
     rules: sealed("rules"),
     ledgerSeq: counter("ledger_seq").notNull().default(0),
     ledgerHead: text("ledger_head"),

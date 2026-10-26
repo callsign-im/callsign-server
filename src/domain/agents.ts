@@ -242,6 +242,7 @@ export type AgentSettings = {
   discoverable?: boolean | undefined;
   emailBridge?: boolean | undefined;
   publicEmail?: boolean | undefined;
+  publicPage?: boolean | undefined;
   rules?: string | null | undefined;
   wake?: Partial<Pick<Agent, "wakeKind" | "wakeUrl" | "wakeToken" | "wakeStatus">> | undefined;
 };
@@ -264,6 +265,7 @@ export async function updateAgent(
     ...(settings.discoverable !== undefined && { discoverable: settings.discoverable }),
     ...(settings.emailBridge !== undefined && { emailBridge: settings.emailBridge }),
     ...(settings.publicEmail !== undefined && { publicEmail: settings.publicEmail }),
+    ...(settings.publicPage !== undefined && { publicPage: settings.publicPage }),
     ...(settings.rules !== undefined && {
       rules: key.seal(settings.rules?.trim() || null, rulesContext(agent.id)),
     }),
@@ -446,6 +448,7 @@ export async function ownerView(agent: Agent) {
     discoverable: agent.discoverable,
     emailBridge: agent.emailBridge,
     publicEmail: agent.publicEmail,
+    publicPage: agent.publicPage,
     rules: key.open(agent.rules, rulesContext(agent.id)),
     wake: agent.wakeKind
       ? {

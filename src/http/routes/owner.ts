@@ -83,6 +83,7 @@ const updateAgentBody = z.object({
   discoverable: z.boolean().optional(),
   emailBridge: z.boolean().optional(),
   publicEmail: z.boolean().optional(),
+  publicPage: z.boolean().optional(),
   rules: z.string().max(2000).nullable().optional(),
   wake: z
     .object({

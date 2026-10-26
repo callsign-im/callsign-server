@@ -120,6 +120,13 @@
       "when": 1792950083025,
       "tag": "0016_live_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792983967201,
+      "tag": "0017_public_agent_pages",
+      "breakpoints": true
     }
   ]
 }
